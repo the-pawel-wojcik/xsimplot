@@ -6,7 +6,7 @@ import sys
 import math as m
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+from matplotlib.ticker import MultipleLocator
 import numpy as np
 from parsers.xsim import parse_xsim_output
 
@@ -80,7 +80,7 @@ def parse_command_line():
     parser.add_argument("-m", "--molecule",
                         help=help,
                         type=str,
-                        choices=["ozone", "pyrazine"])
+                        choices=["ozone", "pyrazine", "caoph"])
 
     save = parser.add_mutually_exclusive_group()
 
@@ -181,7 +181,7 @@ def get_xsim_outputs(args):
 def find_shift(xsim_outputs, args):
     """
     Find shift (in eV) which will be applied to the spectrum.
-    The shift is 
+    The shift is
     """
 
     if args.shift_eV is not None:
@@ -225,6 +225,10 @@ def find_left_right(xsim_outputs, args, how_far: int = 4):
             # right = 4.25
             left = 3.8
             right = 4.0
+        elif args.molecule == "caoph":
+            left = 1.95
+            right = 2.35
+
         return (left, right)
 
     mins = list()
@@ -495,11 +499,16 @@ def main():
     if args.molecule is not None:
         if args.molecule == "pyrazine":
             # ax.set_ylim([0.0, 0.044])
-            ax.set_ylim([0.0, 0.007])
+            ax.set_ylim([0.0, 0.005])
+            # ax.set_ylim([0.0, 0.0040])
 
-        if args.molecule == "ozone":
+        elif args.molecule == "ozone":
             ax.set_xlim([12.4, 13.3])
             ax.set_ylim([0.0, 0.535])
+
+        elif args.molecule == "caoph":
+            ax.set_xlim([1.95, 2.35])
+            # ax.set_ylim([0.0, 0.535])
 
     origin = get_origin(args, xsim_outputs)
     add_cm_scale(args, ax, origin)
