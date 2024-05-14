@@ -43,11 +43,6 @@ def parse_command_line():
                         default="",
                         type=str)
 
-    parser.add_argument("-c", "--cm_scale",
-                        help="Add a second energy scale in (cm-1).",
-                        default=False,
-                        action="store_true")
-
     parser.add_argument("-e", "--envelope",
                         help="Add a Lorenzian envelope to every peak.",
                         type=str,
@@ -103,6 +98,12 @@ def parse_command_line():
     shift.add_argument("-s", "--shift_eV",
                        help="Positive shift moves peak towards lower energy.",
                        type=float)
+
+    parser.add_argument("-x", "--second_axis",
+                        help="Add a second energy axis; pick units.",
+                        type=str,
+                        choices=["cm", "nm"],
+                        default=None)
 
     args = parser.parse_args()
     return args
@@ -454,9 +455,18 @@ def get_origin(args, xsim_outputs):
     return origin
 
 
-def add_cm_scale(args, ax, origin_eV):
-    if args.cm_scale is False:
+def add_second_axis(args, ax, origin_eV):
+    if args.second_axis is None:
         return
+
+    if args.second_axis == "cm":
+        add_cm_scale(args, ax, origin_eV)
+
+    elif args.second_axis == "nm":
+        add_nm_scale(args, ax)
+
+
+def add_cm_scale(args, ax, origin_eV):
     ax_cm = ax.twiny()
 
     origin_cm = origin_eV * eV2CM
@@ -470,6 +480,27 @@ def add_cm_scale(args, ax, origin_eV):
 
     if args.molecule == "ozone":
         ax.xaxis.set_minor_locator(MultipleLocator(0.05))
+
+
+def add_nm_scale(args, ax):
+    r"""
+    Relation between photon's energy and wavelength:
+        E = hc / \lambda
+    """
+    ToLambda = 1239.84198  # from eV to nm
+    ax_nm = ax.twiny()
+
+    x1, x2 = ax.get_xlim()
+    x1 = ToLambda / x1
+    x2 = ToLambda / x2
+
+    ax_nm.set_xlim(x1, x2)
+    if args.molecule == "caoph":
+        ax_nm.xaxis.set_minor_locator(MultipleLocator(5))
+        ax.xaxis.set_minor_locator(MultipleLocator(0.01))
+
+    # if args.molecule == "ozone":
+    #     ax.xaxis.set_minor_locator(MultipleLocator(0.05))
 
 
 def main():
@@ -511,7 +542,7 @@ def main():
             # ax.set_ylim([0.0, 0.535])
 
     origin = get_origin(args, xsim_outputs)
-    add_cm_scale(args, ax, origin)
+    add_second_axis(args, ax, origin)
 
     # Disable the y-axis ticks
     # ax.get_yaxis().set_ticks([])
