@@ -16,7 +16,6 @@ xsimplot.py --help
 
 [numpy](https://numpy.org/)
 
-cofur parsers: xsim
 
 ### Standard python libraries:
 
@@ -27,4 +26,12 @@ cofur parsers: xsim
 [sys](https://docs.python.org/3/library/sys.html)
 
 [math](https://docs.python.org/3/library/math.html)
+
+### Optional
+
+cofur parsers: xsim
+
+Parsing xsim output gives more information: allows to print basis set
+information with the `--verbose` flag. If not wanted use the `--no_parser` flag
+and use the `fort.20` files instead of xsim's output.
 

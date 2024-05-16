@@ -8,7 +8,9 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.ticker import MultipleLocator
 import numpy as np
-from parsers.xsim import parse_xsim_output
+
+
+DISREGARD_INTENSITY = 1e-20
 
 COLORS = [color for color in mcolors.TABLEAU_COLORS.keys()]
 FONTSIZE = 12
@@ -29,10 +31,15 @@ def parse_command_line():
     # Parse the command line arguments.
 
     parser = argparse.ArgumentParser(
-        description="Plot output of the xsim program.")
+        description="Plot output of the xsim program.\nUse the -n flag and"
+        " work with the fort.20 output files if you do not have xsim parser"
+        " installed.")
 
     parser.add_argument("output_files",
-                        help="List of xsim output files.",
+                        help="List of xsim output files "
+                        "(requires xsim parser). "
+                        "If the -n flag is up, it's a list of fort.20 files "
+                        "(no extra programs required).",
                         nargs="+")
 
     parser.add_argument("-a", "--annotate",
@@ -48,6 +55,12 @@ def parse_command_line():
                         type=str,
                         default=None,
                         choices=['stack', 'overlay'])
+
+    parser.add_argument("-n", "--no_parser",
+                        help="Use the fort.20 outputs of xsim as the source of"
+                        " spectrum information.",
+                        default=False,
+                        action='store_true')
 
     parser.add_argument("-r", "--scale_factor",
                         help="Scale the figure size with the factor.",
@@ -153,7 +166,45 @@ def stem_xsim_output(xsim_output, ax, color: str = 'k'):
         ax.vlines(x=energy_eV, ymin=0.0, ymax=intensity, colors=color)
 
 
+def get_xsim_outputs_from_fort20(args):
+    xsim_outputs = []
+    lanczos = None
+    for file_idx, fort20_file in enumerate(args.output_files):
+
+        with open(fort20_file, 'r') as f:
+            fort20 = f.readlines()
+
+        loc_lanczos = int(fort20[0].split()[0])
+        if lanczos is None:
+            lanczos = loc_lanczos
+        elif loc_lanczos != lanczos:
+            print("Warning: the number of Lanczos iterations in the input"
+                  f" file #{file_idx} differs from the previous files.",
+                  file=sys.stderr)
+
+        xsim_output = []
+        first_peak_cm = float(fort20[1].split()[0]) * eV2CM
+        for peak in fort20[1:]:
+            peak = peak.split()
+            intensity = float(peak[1])
+            if intensity < DISREGARD_INTENSITY:
+                continue
+            offset = float(peak[2])
+            data = {
+                'Energy (eV)': float(peak[0]),
+                'Energy (cm-1)': first_peak_cm + offset,
+                'Offset (cm-1)': offset,
+                'Relative intensity': float(peak[1]),
+            }
+            xsim_output += [data]
+
+        xsim_outputs += [xsim_output]
+
+    return xsim_outputs, lanczos
+
+
 def get_xsim_outputs(args):
+    from parsers.xsim import parse_xsim_output
     xsim_outputs = []
     basis = None
     lanczos = None
@@ -168,13 +219,15 @@ def get_xsim_outputs(args):
         if basis is None:
             basis = loc_basis
         elif basis != loc_basis:
-            print("Warning! Outputs use different basis sets.")
+            print("Warning: Outputs use different basis sets.",
+                  file=sys.stderr)
 
         loc_lanczos = xsim_data['Lanczos']
         if lanczos is None:
             lanczos = loc_lanczos
         elif lanczos != loc_lanczos:
-            print("Warning! Outputs use different # of Lanczos iterations.")
+            print("Warning! Outputs use different # of Lanczos iterations.",
+                  file=sys.stderr)
 
     return xsim_outputs, basis, lanczos
 
@@ -328,7 +381,8 @@ def add_info_text(ax, args, shift_eV, basis, lanczos, gamma):
         text += f'$s = {shift_eV:.2f}$'
 
     if args.verbose is True:
-        text += f'\nBasis: {basis.split()[0]}'
+        if basis is not None:
+            text += f'\nBasis: {basis.split()[0]}'
         text += f'\nLanczos: {lanczos}'
 
     if args.annotate != "":
@@ -506,7 +560,13 @@ def add_nm_scale(args, ax):
 def main():
     args = parse_command_line()
     gamma = find_gamma(args)
-    xsim_outputs, basis, lanczos = get_xsim_outputs(args)
+
+    if args.no_parser is True:
+        basis = None
+        xsim_outputs, lanczos = get_xsim_outputs_from_fort20(args)
+    else:
+        xsim_outputs, basis, lanczos = get_xsim_outputs(args)
+
     shift_eV = find_shift(xsim_outputs, args)
     left, right = find_left_right(xsim_outputs, args)
     xsim_outputs = apply_shift(xsim_outputs, shift_eV)
