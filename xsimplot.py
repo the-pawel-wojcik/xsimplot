@@ -7,7 +7,9 @@ import math as m
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.ticker import MultipleLocator
+import matplotlib.ticker as ticker
 import numpy as np
+import tomllib
 
 
 DISREGARD_INTENSITY = 1e-20
@@ -22,7 +24,6 @@ ZEKE_2ND_ADIABATIC_IE_CM = 102110.1
 ZEKE_DISSOCIATION_THRESHOLD = ZEKE_ADIABATIC_IE_CM + 4898  # (3)
 CM2eV = 1./8065.543937
 eV2CM = 8065.543937
-
 
 PYRAZINE_ABSORPTION_ORIGIN_CM = 30876
 
@@ -50,11 +51,41 @@ def parse_command_line():
                         default="",
                         type=str)
 
+    parser.add_argument("-c", "--config",
+                        help="Pick config file.",
+                        default="xsimplot.toml")
+
     parser.add_argument("-e", "--envelope",
                         help="Add a Lorenzian envelope to every peak.",
                         type=str,
                         default=None,
-                        choices=['stack', 'overlay'])
+                        choices=['stack', 'overlay', 'sum only'])
+
+    parser.add_argument("-g", "--gamma",
+                        help="Gamma in the Lorenzian:\n" +
+                        "(0.5 * gamma)**2 / ((x - x0)**2 + (0.5 * gamma) **2)",
+                        type=float,
+                        default=None)
+
+    parser.add_argument("-k", "--horizonal_minor_ticks_2nd_axis",
+                        help="Specify the interval at which the minor ticks"
+                        " should appear.",
+                        type=float,
+                        default=None)
+
+    parser.add_argument("-K", "--horizonal_minor_ticks",
+                        help="Specify the interval at which the minor ticks"
+                        " should appear.",
+                        type=float,
+                        default=None)
+
+    help = "Match some of the plot properties (like xlims or output location)"
+    help += " to the selected molecule."
+    parser.add_argument("-m", "--molecule",
+                        help=help,
+                        type=str,
+                        choices=["ozone", "ozone_zeke", "ozone_dyke",
+                                 "ozone_no_cpl", "pyrazine_abs1", "pyrazine", "caoph"])
 
     parser.add_argument("-n", "--no_parser",
                         help="Use the fort.20 outputs of xsim as the source of"
@@ -64,14 +95,8 @@ def parse_command_line():
 
     parser.add_argument("-r", "--scale_factor",
                         help="Scale the figure size with the factor.",
-                        default=1.0,
+                        default=None,
                         type=float)
-
-    parser.add_argument("-g", "--gamma",
-                        help="Gamma in the Lorenzian:\n" +
-                        "(0.5 * gamma)**2 / ((x - x0)**2 + (0.5 * gamma) **2)",
-                        type=float,
-                        default=0.030)
 
     parser.add_argument("-t", "--sticks_off",
                         help="Do NOT show stick spectrum.",
@@ -82,13 +107,6 @@ def parse_command_line():
                         help="Annotate with # of Lanczos it and basis size.",
                         default=False,
                         action="store_true")
-
-    help = "Match some of the plot properties (like xlims or output location)"
-    help += " to the selected molecule."
-    parser.add_argument("-m", "--molecule",
-                        help=help,
-                        type=str,
-                        choices=["ozone", "pyrazine", "caoph"])
 
     save = parser.add_mutually_exclusive_group()
 
@@ -113,10 +131,17 @@ def parse_command_line():
                        type=float)
 
     parser.add_argument("-x", "--second_axis",
-                        help="Add a second energy axis; pick units.",
+                        help="Add a second energy axis; pick units. If you"
+                        " want to see the offset from the first peak add"
+                        " 'offset'.",
                         type=str,
-                        choices=["cm", "nm"],
+                        choices=["cm", "cm offset", "nm"],
                         default=None)
+
+    parser.add_argument("-y", "--show_yaxis_ticks",
+                        help="Show ticks on the yaxis.",
+                        default=False,
+                        action='store_true')
 
     args = parser.parse_args()
     return args
@@ -163,6 +188,13 @@ def stem_xsim_output(xsim_output, ax, color: str = 'k'):
     for spectral_point in xsim_output:
         energy_eV = spectral_point['Energy (eV)']
         intensity = spectral_point['Relative intensity']
+        ax.vlines(x=energy_eV, ymin=0.0, ymax=intensity, colors=color)
+
+
+def stem_ozone_zeke(xsim_output, ax, color: str = 'k'):
+    for spectral_point in xsim_output:
+        energy_eV = spectral_point['Energy (eV)']
+        intensity = 1.0
         ax.vlines(x=energy_eV, ymin=0.0, ymax=intensity, colors=color)
 
 
@@ -232,22 +264,40 @@ def get_xsim_outputs(args):
     return xsim_outputs, basis, lanczos
 
 
-def find_shift(xsim_outputs, args):
+def find_shift(xsim_outputs, args, config):
     """
     Find shift (in eV) which will be applied to the spectrum.
     The shift is
     """
 
+    # Command line args are the most important
     if args.shift_eV is not None:
         return args.shift_eV
 
-    first_peak_position = args.match_origin
+    first_peak_position = None
+
+    if 'match_origin' in config:
+        first_peak_position = config['match_origin']
+
+    if args.match_origin is not None:
+        first_peak_position = args.match_origin
 
     if args.molecule is not None:
         if args.molecule == "ozone":
             # Position of the first ionization energy of ozone
             first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+        elif args.molecule == "ozone_zeke":
+            # Position of the first ionization energy of ozone
+            first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+        elif args.molecule == "ozone_dyke":
+            # Position of the first ionization energy of ozone
+            first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+        # elif args.molecule == "ozone_no_cpl":
+        #     # Position of the first ionization energy of ozone
+        #     first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
         elif args.molecule == "pyrazine":
+            first_peak_position = PYRAZINE_ABSORPTION_ORIGIN_CM * CM2eV
+        elif args.molecule in ["pyrazine_abs1"]:
             first_peak_position = PYRAZINE_ABSORPTION_ORIGIN_CM * CM2eV
 
     if first_peak_position is not None:
@@ -262,29 +312,55 @@ def find_shift(xsim_outputs, args):
     return None
 
 
-def find_left_right(xsim_outputs, args, how_far: int = 4):
+def find_left_right_gamma(xsim_outputs, args, config, how_far: int = 4):
     """
     Find the positions of the lowest energy and highest energy peaks and return
     values how_far*gamma away from them as the plot limits.
     """
 
+    gamma_eV = find_gamma(args, config)
+
+    # Commnad line is the most important
     if args.molecule is not None:
-        if args.molecule == "ozone":
+        if args.molecule == "ozone" or args.molecule == "ozone_zeke":
             # First photoelectron band of ozone
             left = 12.225
             right = 13.375
+        elif args.molecule == "ozone_dyke":
+            left = 12.25
+            right = 13.40
+
+        elif args.molecule == "ozone_no_cpl":
+            # First photoelectron band of ozone
+            left = 12.225
+            right = 13.375
+
         elif args.molecule == "pyrazine":
             # First absorption band of pyrazine
             # left = 3.75
             # right = 4.25
             left = 3.8
             right = 4.0
+            # # For 1st band absorption
+            # left = 3.5
+            # right = 4.5
+        elif args.molecule == "pyrazine_abs1":
+            left = 3.5
+            right = 4.5
+
         elif args.molecule == "caoph":
             left = 1.95
             right = 2.35
 
-        return (left, right)
+        return (left, right, gamma_eV)
 
+    # Config file is the second most important resource
+    if 'xlims' in config:
+        left = config['xlims']['left']
+        right = config['xlims']['right']
+        return (left, right, gamma_eV)
+
+    # Finally find some default values
     mins = list()
     maxes = list()
 
@@ -296,11 +372,10 @@ def find_left_right(xsim_outputs, args, how_far: int = 4):
 
     minimum = min(mins)
     maximum = max(maxes)
-    gamma_eV = args.gamma
     left = minimum - how_far * gamma_eV
     right = maximum + how_far * gamma_eV
 
-    return (left, right)
+    return (left, right, gamma_eV)
 
 
 def apply_shift(xsim_outputs, shift_eV):
@@ -314,8 +389,16 @@ def apply_shift(xsim_outputs, shift_eV):
     return xsim_outputs
 
 
-def add_envelope(ax, args, xsim_outputs, left, right, gamma):
-    if args.envelope is None:
+def add_envelope(ax, args, config, xsim_outputs, left, right, gamma):
+
+    envelope_type = None
+    if 'envelope' in config:
+        envelope_type = config['envelope']
+    # Command line args override config options
+    if args.envelope is not None:
+        envelope_type = args.envelope
+
+    if envelope_type is None:
         return 0.0
 
     npoints = 500
@@ -330,33 +413,56 @@ def add_envelope(ax, args, xsim_outputs, left, right, gamma):
         state_spectrum = [lorenz_intensity(x, gamma, xsim_output) for x in xs]
         state_spectrum = np.array(state_spectrum)
         color = COLORS[file_idx]
-        if args.envelope == "stack":
+        if envelope_type == "stack":
             ax.fill_between(xs, accumutated_ys + state_spectrum,
                             accumutated_ys, color=color, alpha=0.2)
-        elif args.envelope == "overlay":
+        elif envelope_type == "overlay":
             ax.fill_between(xs, state_spectrum, np.zeros_like(xs), color=color,
                             alpha=0.2)
         accumutated_ys += state_spectrum
 
+    # dashed = (0, (5, 5))
+    # densly_dashdotted = (0, (3, 1, 1, 1))
     # Plot the total spectrum extra for overlay
-    if args.envelope == "overlay":
+    if envelope_type in ["overlay", "sum only"]:
+        # if args.molecule == "ozone_dyke":
+        #     ax.fill_between(xs, accumutated_ys, np.zeros_like(xs),
+        #                     color='tab:green', alpha=0.2, label='simulation')
+        # else:
         ax.plot(xs, accumutated_ys, color='tab:gray', lw=1)
+        # Dyke-like
+        # ax.plot(xs, accumutated_ys, color='k', lw=1, ls=densly_dashdotted,
+        #         label='simulation')
 
     fig_max_y = np.max(accumutated_ys)
+
+    # if args.molecule == "other":
+    #     ax.legend()
+
     return fig_max_y
 
 
-def add_peaks(ax, xsim_outputs, args):
-    sticks_off = args.sticks_off
+# TODO: limit search for max peak only to peaks in the [left, right] range
+def add_peaks(ax, xsim_outputs, args, config):
+    sticks_off = False
+    if 'sticks_off' in config:
+        sticks_off = config['sticks_off']
+    if args.sticks_off is True:
+        sticks_off = True
+
     if sticks_off is True:
         return 0.0
 
     peaks_maxima = []
     for file_idx, xsim_output in enumerate(xsim_outputs):
         if file_idx == len(COLORS) or file_idx > len(COLORS):
-            print("Too many colors already.")
+            print("Too many colors already.", file=sys.stder)
             sys.exit(1)
-        stem_xsim_output(xsim_output, ax, COLORS[file_idx])
+
+        if args.molecule == "ozone_zeke":
+            stem_ozone_zeke(xsim_output, ax, COLORS[file_idx])
+        else:
+            stem_xsim_output(xsim_output, ax, COLORS[file_idx])
 
         max_peak = max(xsim_output, key=lambda x: x['Relative intensity'])
         peaks_maxima.append(max_peak['Relative intensity'])
@@ -364,7 +470,7 @@ def add_peaks(ax, xsim_outputs, args):
     return max(peaks_maxima)
 
 
-def add_info_text(ax, args, shift_eV, basis, lanczos, gamma):
+def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
     info_kwargs = {'horizontalalignment': 'left',
                    'verticalalignment': 'top',
                    'fontsize': FONTSIZE,
@@ -374,43 +480,113 @@ def add_info_text(ax, args, shift_eV, basis, lanczos, gamma):
 
     text = ""
 
+    envelope_type = None
+    if 'envelope' in config:
+        envelope_type = config['envelope']
     if args.envelope is not None:
+        envelope_type = args.envelope
+
+    if envelope_type is not None:
         text = r'$\gamma = ' + f'{gamma:.3f}$\n'
 
     if shift_eV is not None:
         text += f'$s = {shift_eV:.2f}$'
 
+    verbose = False
+    if 'verbose' in config:
+        verbose = config['verbose']
     if args.verbose is True:
+        verbose = True
+
+    if verbose is True:
         if basis is not None:
             text += f'\nBasis: {basis.split()[0]}'
         text += f'\nLanczos: {lanczos}'
 
+    annotation = ""
+    if 'annotate' in config:
+        annotation = config['annotate']
     if args.annotate != "":
+        annotation = args.annotate
+
+    if annotation != "":
         # append
-        if args.annotate[0] == "a":
-            text += "\n" + args.annotate[1:]
+        if annotation[0] == "a":
+            text += "\n" + annotation[1:]
         # overwrite
-        elif args.annotate[0] == "o":
-            text = "\n" + args.annotate[1:]
+        elif annotation[0] == "o":
+            text = annotation[1:]
         else:
-            print("Warning! The annotation texts needs to start with either"
+            print("Warning: The annotation texts needs to start with either"
                   " 'a' or 'o', see help for details.", file=sys.stderr)
 
     ax.text(0.01, 0.99, text, **info_kwargs)
 
 
-def add_pyrazine_lines(ax, top_feature):
-    PYRAZINE_LINES = [{'pos_cm': 0.0, 'lbl': '0.0', 'series': 0},
-                      {'pos_cm': 383, 'lbl': r'$10a ^1$', 'series': 1},
-                      # {'pos_cm': 467, 'lbl': r'$16 b^2$', 'series': 3},
-                      # {'pos_cm': 517, 'lbl': r'$5 ^1$', 'series': 4},
-                      {'pos_cm': 583, 'lbl': r'$6a ^1$', 'series': 2},
-                      {'pos_cm': 823, 'lbl': r'$10 a^2$', 'series': 1},
-                      {'pos_cm': 945, 'lbl': r'$10 a^1 6 a^1$', 'series': 3},
-                      {'pos_cm': 1167, 'lbl': r'$6a ^2$', 'series': 2},]
+def add_caoph_lines(ax, top_feature):
+    CAOPH_LINES = [
+        {'pos_cm': 0.0, 'height': 660, 'lbl': 'A'},
+        {'pos_cm': 0.0, 'height': 660, 'lbl': 'A'},
+    ]
+
+    max_height = max([x['height'] for x in CAOPH_LINES])
+
+    # TODO: continue here
 
     # top_feature = 0.038
+    # For now I print only the first band
     top_feature = 0.004
+    # For the 2200 cm offset
+    # top_feature = 0.022
+
+    step = 0.075 * top_feature
+    y_top = 0.85 * top_feature
+    y_bottom = 0.825 * top_feature
+
+    line_kwargs = {'color': 'gray',
+                   'linestyles': 'solid',
+                   'linewidths': 1,
+                   'alpha': 0.2}
+    text_kwargs = {'va': 'center',
+                   'ha': 'center'}
+
+    for line in CAOPH_LINES:
+        pos_cm = line['pos_cm']
+        lttr = line['lbl']
+        if 'height' in line:
+            height = line['height'] / max_height * top_feature
+            y_text = height
+            y_peak = height
+        else:
+            series = line['series']
+            y_text = y_top - series * step
+            y_peak = y_bottom - series * step
+        x_cm = pos_cm + PYRAZINE_ABSORPTION_ORIGIN_CM
+        x_eV = x_cm * CM2eV
+        ax.text(x_eV, y_text, lttr, **text_kwargs)
+        ax.vlines([x_eV], 0.0, [y_peak], **line_kwargs)
+
+
+def add_pyrazine_lines(ax, top_feature):
+    PYRAZINE_LINES = [
+        {'pos_cm': 0.0, 'height': 660, 'lbl': '0', 'series': 0},
+        {'pos_cm': 383, 'height': 487, 'lbl': r'$10a ^1$', 'series': 1},
+        # {'pos_cm': 467, 'lbl': r'$16 b^2$', 'series': 3},
+        {'pos_cm': 517, 'height': 122, 'lbl': r'$5 ^1$', 'series': 4},
+        {'pos_cm': 583, 'height': 350, 'lbl': r'$6a ^1$', 'series': 2},
+        {'pos_cm': 823, 'height': 273, 'lbl': r'$10 a^2$', 'series': 1},
+        {'pos_cm': 945, 'height': 231, 'lbl': r'$10 a^1 6 a^1$', 'series': 3},
+        # {'pos_cm': 1167, 'lbl': r'$6a ^2$', 'series': 2},
+    ]
+
+    max_height = max([x['height'] for x in PYRAZINE_LINES if 'height' in x])
+
+    # top_feature = 0.038
+    # For now I print only the first band
+    top_feature = 0.004
+    # For the 2200 cm offset
+    # top_feature = 0.022
+
     step = 0.075 * top_feature
     y_top = 0.85 * top_feature
     y_bottom = 0.825 * top_feature
@@ -425,11 +601,18 @@ def add_pyrazine_lines(ax, top_feature):
     for line in PYRAZINE_LINES:
         pos_cm = line['pos_cm']
         lttr = line['lbl']
-        series = line['series']
+        if 'height' in line:
+            height = line['height'] / max_height * top_feature
+            y_text = height
+            y_peak = height
+        else:
+            series = line['series']
+            y_text = y_top - series * step
+            y_peak = y_bottom - series * step
         x_cm = pos_cm + PYRAZINE_ABSORPTION_ORIGIN_CM
         x_eV = x_cm * CM2eV
-        ax.text(x_eV, y_top - series * step, lttr, **text_kwargs)
-        ax.vlines([x_eV], 0.0, [y_bottom - series * step], **line_kwargs)
+        ax.text(x_eV, y_text, lttr, **text_kwargs)
+        ax.vlines([x_eV], 0.0, [y_peak], **line_kwargs)
 
 
 def add_ZEKE_lines(ax, top_feature):
@@ -449,15 +632,16 @@ def add_ZEKE_lines(ax, top_feature):
     # ax.hlines(y_top, xs[0], xs[-1], color = 'k')
     # add the 2nd IE line
 
-    x = ZEKE_2ND_ADIABATIC_IE_CM
-    x_ev = x * CM2eV
+    # x = ZEKE_2ND_ADIABATIC_IE_CM
+    # x_ev = x * CM2eV
     # lttr = r'$\tilde{A} ^+ (0,0,0)$'
-    lttr = r'$IE _2$'
-    y_bottom *= 0.9
-    y_top *= 0.9
-    ax.text(x_ev, y_top, lttr, va='center', ha='center')
-    ax.vlines(x_ev, 0.0, y_bottom, color='gray', linestyles='solid',
-              linewidths=1, alpha=0.2)
+    # lttr = r'$\tilde{A} ^+$'
+    # # lttr = r'$IE _2$'
+    # # y_bottom *= 0.9
+    # # y_top *= 0.9
+    # ax.text(x_ev, y_top, lttr, va='center', ha='center')
+    # ax.vlines(x_ev, 0.0, y_bottom, color='gray', linestyles='solid',
+    #           linewidths=1, alpha=0.2)
 
     x = ZEKE_DISSOCIATION_THRESHOLD
     x_ev = x * CM2eV
@@ -465,6 +649,145 @@ def add_ZEKE_lines(ax, top_feature):
     ax.text(x_ev, y_top, lttr, va='center', ha='center')
     ax.vlines(x_ev, 0.0, y_bottom, color='gray', linestyles='solid',
               linewidths=1, alpha=0.2)
+
+
+def add_assignmnet_to_ZEKE_lines(ax, top_feature):
+
+    uncoupled_like = [
+        [0, "A000"], [618, "A010"], [1076, "A100"],
+        [1222, "A020"], [1368, "B000"], [1684, "A110"],
+    ]
+
+    leading_order = [
+        [1796, "A030", 0.87],
+        [1921, "B010", 0.74],
+    ]
+
+    # X001 (915cm-1) =
+    # B000next (1498cm-1) =
+    #  -0.10 (B000)
+    # [1796, "A030"] (87)
+    #  -0.16 (A110)
+    #  -0.13 (A020)
+    #   0.13 (A040)
+    # X030n1 (1848cm-1) =
+    #   0.31 (A030)
+    # B010 (1921cm-1) =
+    #  -0.74 (B010)
+    #   0.18 (B020)
+    #   0.11 (B000)
+    # B010n1 (1977cm-1) =
+    #   0.24 (B010)
+
+    text_kw = dict(va='bottom', ha='left', rotation=40,
+                   rotation_mode='anchor')
+
+    y_top = top_feature
+    y_top = 1.1 * top_feature
+    y_bottom = 1.075 * top_feature
+    xs = []
+    for peak in uncoupled_like:
+        pos = peak[0]
+        name = peak[1]
+        assignmnet = ""
+        if name[0] == "A":
+            assignmnet += r"A$_1$("
+        elif name[0] == "B":
+            assignmnet += r"B$_2$("
+        assignmnet += name[1:5]
+        assignmnet += ")"
+
+        x = pos + ZEKE_ADIABATIC_IE_CM
+        x_ev = x * CM2eV
+        xs.append(x_ev)
+        ax.text(x_ev, y_top, assignmnet, **text_kw)
+
+    # ax.vlines(xs, 0.0, y_bottom, color='gray', linestyles='solid',
+    #           linewidths=1, alpha=0.2)
+
+    for peak in leading_order:
+        pos = peak[0]
+        name = peak[1]
+        percentage = peak[2]
+        assignmnet = f"{100*percentage**2:.0f}%"
+        if name[0] == "A":
+            assignmnet += r"A$_1$("
+        elif name[0] == "B":
+            assignmnet += r"B$_2$("
+        assignmnet += name[1:5]
+        assignmnet += ")"
+
+        x = pos + ZEKE_ADIABATIC_IE_CM
+        x_ev = x * CM2eV
+        xs.append(x_ev)
+        ax.text(x_ev, y_top, assignmnet, **text_kw)
+
+
+def add_no_cpl_lines(ax):
+
+    lines = {
+        "A000": 0, "A010": 628, "A100": 1083, "A020": 1249, "B000": 1412,
+        "A110": 1708, "A030": 1863, "B010": 2061, "A120": 2325,
+        "A040": 2470, "B020": 2708, "A130": 2936, "A050": 3068,
+        "B110": 3247, "B030": 3353, "A140": 3539, "A060": 3656,
+        "B120": 3888, "B040": 3996, "A150": 4134, "A070": 4234,
+        "B130": 4527, "B050": 4636, "A080": 4801, "B140": 5163,
+        "B060": 5275, "A090": 5353, "B150": 5802, "B070": 5909,
+    }
+
+    xs = {
+        "A0": [],
+        "A1": [],
+        "B0": [],
+        "B1": [],
+    }
+    y_tops = {
+        "A0": 0.5,
+        "A1": 0.6,
+        "B0": 0.7,
+        "B1": 0.8,
+    }
+    y_bottoms = {
+        "A0": 0.5,
+        "A1": 0.6,
+        "B0": 0.7,
+        "B1": 0.8,
+    }
+
+    for name, pos in lines.items():
+        series = name[0:2]
+        y_top = y_tops[series]
+        x_ev = (ZEKE_ADIABATIC_IE_CM + pos) * CM2eV
+        xs[series].append(x_ev)
+        lttr = name[2]
+        ax.text(x_ev, y_top, lttr, va='bottom', ha='center')
+
+    tick_height = 0.015
+    for series in ["A0", "A1", "B0", "B1"]:
+        if series[0] == "A":
+            color = 'tab:blue'
+        elif series[0] == "B":
+            color = 'tab:orange'
+
+        y_bottom = y_bottoms[series]
+        ax.vlines(xs[series], y_bottom-tick_height, y_bottom, color=color,
+                  linestyles='solid', linewidths=1)
+
+        x_min = xs[series][0]
+        x_max = xs[series][-1]
+        ax.hlines(y_bottom, x_min, x_max, color=color,
+                  linestyles='solid', linewidths=1)
+
+        # Add the series header
+        name = series[0]
+        if series[0] == "A":
+            name += r"$_1$("
+        else:
+            name += r"$_2$("
+        name += series[1] + "n0)"
+        header_x_offset = -0.01
+        ax.text(x_min + header_x_offset, y_bottom, name,
+                va='center', ha='right')
 
 
 def prepare_filename(args):
@@ -489,14 +812,26 @@ def prepare_filename(args):
     return filename
 
 
-def find_gamma(args):
-    gamma = args.gamma
+def find_gamma(args, config):
+    gamma = None
+    if 'gamma' in config:
+        gamma = config['gamma']
+
     if args.molecule is not None and args.molecule == "pyrazine":
         gamma = 0.001
+
+    # Command line argument takes precedence
+    if args.gamma is not None:
+        gamma = args.gamma
+
+    # default value
+    if gamma is None:
+        gamma = 0.03
+
     return gamma
 
 
-def get_origin(args, xsim_outputs):
+def get_origin(xsim_outputs):
     origin = None
     for xsim_output in xsim_outputs:
         min_element = min(xsim_output, key=lambda x: x['Energy (eV)'])
@@ -509,30 +844,88 @@ def get_origin(args, xsim_outputs):
     return origin
 
 
-def add_second_axis(args, ax, origin_eV):
-    if args.second_axis is None:
+def add_minor_ticks(args, config, ax):
+    interval = None
+    if 'horizonal_minor_ticks' in config:
+        interval = config['horizonal_minor_ticks']
+    if args.horizonal_minor_ticks is not None:
+        interval = args.horizonal_minor_ticks
+
+    if interval is None:
         return
 
-    if args.second_axis == "cm":
-        add_cm_scale(args, ax, origin_eV)
+    ax.xaxis.set_minor_locator(MultipleLocator(0.05))
 
-    elif args.second_axis == "nm":
+
+def add_second_axis(args, config, ax, origin_eV):
+
+    second_axis = None
+
+    if 'second_axis' in config:
+        second_axis = config['second_axis']
+    if args.second_axis is not None:
+        second_axis = args.second_axis
+
+    if second_axis is None:
+        return
+
+    if second_axis == "cm offset":
+        add_cm_scale(ax, args, config, origin_eV)
+
+    elif second_axis == "cm":
+        add_cm_scale(ax, args, config)
+
+    elif second_axis == "nm":
         add_nm_scale(args, ax)
 
 
-def add_cm_scale(args, ax, origin_eV):
+def add_cm_scale(ax, args, config, origin_eV: float = None):
     ax_cm = ax.twiny()
 
-    origin_cm = origin_eV * eV2CM
+    if origin_eV is None:
+        origin_cm = 0
+    else:
+        origin_cm = origin_eV * eV2CM
+
     x1, x2 = ax.get_xlim()
     x1 = x1 * eV2CM - origin_cm
     x2 = x2 * eV2CM - origin_cm
 
     ax_cm.set_xlim(x1, x2)
-    if args.molecule == "ozone":
-        ax_cm.xaxis.set_minor_locator(MultipleLocator(200))
+
+    interval = None
+    if 'horizonal_minor_ticks_2nd_axis' in config:
+        interval = config['horizonal_minor_ticks_2nd_axis']
+    if args.horizonal_minor_ticks_2nd_axis is not None:
+        interval = args.horizonal_minor_ticks_2nd_axis
+
+    if interval is not None:
+        ax_cm.xaxis.set_minor_locator(MultipleLocator(interval))
 
     if args.molecule == "ozone":
+        ax_cm.xaxis.set_minor_locator(MultipleLocator(200))
+        # ax.xaxis.set_minor_locator(MultipleLocator(0.05))
+
+    elif args.molecule == "ozone_zeke":
+        ax_cm.xaxis.set_ticks([101100 + 300 * i for i in range(11)])
+        ax_cm.xaxis.set_minor_locator(MultipleLocator(150))
+        ax.xaxis.set_minor_locator(MultipleLocator(0.01))
+
+    elif args.molecule == "ozone_dyke":
+        # ax_cm.xaxis.set_ticks([101100 + 300 * i for i in range(11)])
+        ax_cm.xaxis.set_minor_locator(MultipleLocator(200))
+        ax.xaxis.set_ticks(np.linspace(start=12.5, stop=13.25, num=4))
+
+    elif args.molecule == "ozone_no_cpl":
+        ax_cm.xaxis.set_minor_locator(MultipleLocator(200))
+        ax.xaxis.set_ticks(np.linspace(start=12.5, stop=13.25, num=4))
+
+    # elif args.molecule == "pyrazine":
+    #     ax_cm.xaxis.set_minor_locator(MultipleLocator(100))
+    #     ax.xaxis.set_minor_locator(MultipleLocator(0.01))
+
+    elif args.molecule == "pyrazine_abs1":
+        ax_cm.xaxis.set_minor_locator(MultipleLocator(250))
         ax.xaxis.set_minor_locator(MultipleLocator(0.05))
 
 
@@ -557,60 +950,149 @@ def add_nm_scale(args, ax):
     #     ax.xaxis.set_minor_locator(MultipleLocator(0.05))
 
 
-def main():
-    args = parse_command_line()
-    gamma = find_gamma(args)
+def get_fig_and_ax(args, config):
+    if args.molecule == "ozone_zeke":
+        fig, ax = plt.subplots(figsize=(8.330, 1.563))
+    elif args.molecule == "ozone_dyke":
+        resize = args.scale_factor
+        resize_y = 1.265
+        fig, ax = plt.subplots(
+            figsize=(10.25 * resize, 12.44 * resize * resize_y))
 
-    if args.no_parser is True:
-        basis = None
-        xsim_outputs, lanczos = get_xsim_outputs_from_fort20(args)
-    else:
-        xsim_outputs, basis, lanczos = get_xsim_outputs(args)
+    scale_factor = 1.0
+    if 'scale_factor' in config:
+        scale_factor = config['scale_factor']
+    if args.scale_factor is not None:
+        scale_factor = args.scale_factor
 
-    shift_eV = find_shift(xsim_outputs, args)
-    left, right = find_left_right(xsim_outputs, args)
-    xsim_outputs = apply_shift(xsim_outputs, shift_eV)
+    aspect_ratio = 1.0
+    if 'aspect_ratio' in config:
+        aspect_ratio = config['aspect_ratio']
 
-    scale_factor = args.scale_factor
     FIGSIZE = 12 * CM2INCH * scale_factor
-    fig, ax = plt.subplots(figsize=(FIGSIZE, FIGSIZE))
-    envelope_max_y = add_envelope(ax, args, xsim_outputs, left, right, gamma)
-    max_peak = add_peaks(ax, xsim_outputs, args)
-    add_info_text(ax, args, shift_eV, basis, lanczos, gamma)
+    fig, ax = plt.subplots(figsize=(FIGSIZE, FIGSIZE*aspect_ratio))
+    return fig, ax
 
+
+def add_assignmnets(args, ax, top_feature):
     if args.molecule is not None:
-        top_feature = max(envelope_max_y, max_peak)
         if args.molecule == "ozone":
-            pass
             add_ZEKE_lines(ax, top_feature)
+
+        elif args.molecule == "ozone_zeke":
+            # add_ZEKE_lines(ax, 1.1)
+            add_assignmnet_to_ZEKE_lines(ax, 1.0)
+
+        elif args.molecule == "ozone_no_cpl":
+            # add_ZEKE_lines(ax, top_feature)
+            add_no_cpl_lines(ax)
+
+#         elif args.molecule == "ozone_dyke":
+#             add_ZEKE_lines(ax, 0.47)  # for the no couplings case
+
         elif args.molecule == "pyrazine":
             add_pyrazine_lines(ax, top_feature)
+
+        elif args.molecule == "caoph":
+            add_caoph_lines(ax, top_feature)
+
+
+def set_limits(args, ax, left, right):
 
     ax.set_xlim([left, right])
     if args.molecule is not None:
         if args.molecule == "pyrazine":
             # ax.set_ylim([0.0, 0.044])
-            ax.set_ylim([0.0, 0.005])
+            # Only the first band
+            # ax.set_ylim([0.0, 0.005])
+            ax.set_ylim([0.0, 0.0045])  # The best one
             # ax.set_ylim([0.0, 0.0040])
+            # The offset example
+            # ax.set_ylim([0.0, 0.027])
+
+        elif args.molecule == "pyrazine_abs1":
+            scale = 1e3
+            ticks = ticker.FuncFormatter(
+                lambda x, pos: '{0:g}'.format(x*scale))
+            ax.yaxis.set_major_formatter(ticks)
+        #     ax.set_ylim([0.0, 0.0025])  # The best one
 
         elif args.molecule == "ozone":
             ax.set_xlim([12.4, 13.3])
-            ax.set_ylim([0.0, 0.535])
+            # ax.set_ylim([0.0, 0.535])  # the best one
+            ax.set_ylim([0.0, 0.55])  # the zoomed-in one
+
+        elif args.molecule == "ozone_zeke":
+            ax.set_xlim([12.51, 12.91])
+            # ax.set_ylim([0.0, 0.535])  # the best one
+            # ax.set_ylim([-0.1, 1.5])  # the zoomed-in one
+            ax.set_ylim([-0.1, 5.1])  # Add assignmnet
+
+        elif args.molecule == "ozone_dyke":
+            ax.set_xlim([12.25, 13.40])
+            # ax.set_ylim([0.0, 0.535])  # the best one
+            ax.set_ylim([0.0, 0.55])  # the zoomed-in one
+
+        elif args.molecule == "ozone_no_cpl":
+            ax.set_xlim([12.25, 13.3])
+            # ax.set_ylim([0.0, 0.535])  # the best one
+            ax.set_ylim([0.0, 0.95])  # the zoomed-in one
 
         elif args.molecule == "caoph":
             ax.set_xlim([1.95, 2.35])
             # ax.set_ylim([0.0, 0.535])
 
-    origin = get_origin(args, xsim_outputs)
-    add_second_axis(args, ax, origin)
 
-    # Disable the y-axis ticks
-    # ax.get_yaxis().set_ticks([])
+def get_config(args):
+    config_file = os.path.expanduser(args.config)
+    if os.path.isfile(config_file) is False:
+        print(f"Info: No config file {args.config} present.", file=sys.stderr)
+        return {}
+
+    with open(config_file, 'rb') as config_toml:
+        config = tomllib.load(config_toml)
+
+    return config
+
+
+def main():
+    args = parse_command_line()
+    config = get_config(args)
+
+    if args.no_parser is True or 'fort20' in config:
+        basis = None
+        xsim_outputs, lanczos = get_xsim_outputs_from_fort20(args)
+    else:
+        xsim_outputs, basis, lanczos = get_xsim_outputs(args)
+
+    shift_eV = find_shift(xsim_outputs, args, config)
+    left, right, gamma = find_left_right_gamma(xsim_outputs, args, config)
+    xsim_outputs = apply_shift(xsim_outputs, shift_eV)
+    fig, ax = get_fig_and_ax(args, config)
+
+    envelope_max_y = add_envelope(ax, args, config, xsim_outputs, left, right,
+                                  gamma)
+    max_peak = add_peaks(ax, xsim_outputs, args, config)
+    add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
+
+    top_feature = max(envelope_max_y, max_peak)
+    add_assignmnets(args, ax, top_feature)
+
+    set_limits(args, ax, left, right)
+
+    origin = get_origin(xsim_outputs)
+    add_minor_ticks(args, config, ax)
+    add_second_axis(args, config, ax, origin)
+
+    show_yaxis_ticks = False
+    if 'show_yaxis_ticks' in config:
+        show_yaxis_ticks = config['show_yaxis_ticks']
+    if args.show_yaxis_ticks is True:
+        show_yaxis_ticks = True
+    if show_yaxis_ticks is False:
+        ax.get_yaxis().set_ticks([])
+
     fig.tight_layout()
-
-    # exp_spectrum_png = plt.imread("./pics/Experiments/Dyke-et-al-1974.png")
-    # ax.imshow(exp_spectrum_png, zorder=-1, extent=[left, right, 0.0,
-    #                                                1.1 * fig_max_y])
 
     filename = prepare_filename(args)
     if args.dont_save is True:

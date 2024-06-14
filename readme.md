@@ -1,6 +1,7 @@
 # xsimplot
 
-A python script for plotting the spectra calculated with the [xsim](https://cfour.uni-mainz.de/cfour/index.php) program.
+A python script for plotting the spectra calculated with the
+[xsim](https://cfour.uni-mainz.de/cfour/index.php) program.
 
 ## Usage
 
@@ -8,6 +9,12 @@ For help see
 ```bash
 xsimplot.py --help
 ```
+All command line options can be saved as an `xsimplot.toml` file which
+`xsimplot.py` will read by default. You can name the config file something else
+but then you need to give the name to the script using the `-c` option.
+
+If an option is specified both in the config file and on the command line, the
+command line value is used.
 
 ## Dependencies 
 
@@ -18,7 +25,6 @@ xsimplot.py --help
 
 
 ### Standard python libraries:
-
 [argparse](https://docs.python.org/3/library/argparse.html)
 
 [os](https://docs.python.org/3/library/os.html)
@@ -26,6 +32,8 @@ xsimplot.py --help
 [sys](https://docs.python.org/3/library/sys.html)
 
 [math](https://docs.python.org/3/library/math.html)
+
+[tomllib](https://docs.python.org/3/library/tomllib.html)
 
 ### Optional
 
