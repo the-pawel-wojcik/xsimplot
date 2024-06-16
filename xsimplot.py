@@ -389,7 +389,7 @@ def apply_shift(xsim_outputs, shift_eV):
     return xsim_outputs
 
 
-def add_envelope(ax, args, config, xsim_outputs, left, right, gamma):
+def add_envelope(ax, args, config, xsim_outputs, xlims, gamma):
 
     envelope_type = None
     if 'envelope' in config:
@@ -402,7 +402,7 @@ def add_envelope(ax, args, config, xsim_outputs, left, right, gamma):
         return 0.0
 
     npoints = 500
-    xs = np.linspace(left, right, npoints)
+    xs = np.linspace(xlims[0], xlims[1], npoints)
     accumutated_ys = np.zeros_like(xs)
 
     for file_idx, xsim_output in enumerate(xsim_outputs):
@@ -442,8 +442,7 @@ def add_envelope(ax, args, config, xsim_outputs, left, right, gamma):
     return fig_max_y
 
 
-# TODO: limit search for max peak only to peaks in the [left, right] range
-def add_peaks(ax, xsim_outputs, args, config):
+def add_peaks(ax, args, config, xsim_outputs, xlims):
     sticks_off = False
     if 'sticks_off' in config:
         sticks_off = config['sticks_off']
@@ -459,12 +458,16 @@ def add_peaks(ax, xsim_outputs, args, config):
             print("Too many colors already.", file=sys.stder)
             sys.exit(1)
 
+        my_peaks = [
+            peak for peak in xsim_output if
+            peak['Energy (eV)'] >= xlims[0] and peak['Energy (eV)'] <= xlims[1]
+        ]
         if args.molecule == "ozone_zeke":
-            stem_ozone_zeke(xsim_output, ax, COLORS[file_idx])
+            stem_ozone_zeke(my_peaks, ax, COLORS[file_idx])
         else:
-            stem_xsim_output(xsim_output, ax, COLORS[file_idx])
+            stem_xsim_output(my_peaks, ax, COLORS[file_idx])
 
-        max_peak = max(xsim_output, key=lambda x: x['Relative intensity'])
+        max_peak = max(my_peaks, key=lambda x: x['Relative intensity'])
         peaks_maxima.append(max_peak['Relative intensity'])
 
     return max(peaks_maxima)
@@ -790,12 +793,20 @@ def add_no_cpl_lines(ax):
                 va='center', ha='right')
 
 
-def prepare_filename(args):
-    if args.filename is not None:
-        return args.filename
+def prepare_filename(args, config):
 
-    chem = '/home/pawel/chemistry'
-    path = chem
+    # User can say the name
+    user_filename = None
+    if 'filename' in config:
+        user_filename = config['filename']
+    if args.filename is not None:
+        user_filename = args.filename
+
+    if user_filename is not None:
+        return user_filename
+
+    # If the user does not say the name create one yourself
+    path = os.path.expanduser('~')
     if args.molecule is not None:
         if args.molecule == "ozone":
             path += '/ozone/plotter/pics'
@@ -807,7 +818,7 @@ def prepare_filename(args):
         if idx > 0:
             filename += "+"
         filename += os.path.basename(outname)
-    filename += '.pdf'
+    filename += '_spectrum.pdf'
 
     return filename
 
@@ -997,9 +1008,17 @@ def add_assignmnets(args, ax, top_feature):
             add_caoph_lines(ax, top_feature)
 
 
-def set_limits(args, ax, left, right):
+def set_limits(args, ax, xlims):
 
-    ax.set_xlim([left, right])
+    ax.set_xlim([xlims[0], xlims[1]])
+
+    # TODO: HACK:
+
+    scale = 1e3
+    ticks = ticker.FuncFormatter(
+        lambda x, pos: '{0:g}'.format(x*scale))
+    ax.yaxis.set_major_formatter(ticks)
+
     if args.molecule is not None:
         if args.molecule == "pyrazine":
             # ax.set_ylim([0.0, 0.044])
@@ -1049,10 +1068,21 @@ def get_config(args):
         print(f"Info: No config file {args.config} present.", file=sys.stderr)
         return {}
 
+    print(f"Info: Using the config file {args.config}.", file=sys.stderr)
     with open(config_file, 'rb') as config_toml:
         config = tomllib.load(config_toml)
 
     return config
+
+
+def customize_yaxsim_ticks(args, config, ax):
+    show_yaxis_ticks = False
+    if 'show_yaxis_ticks' in config:
+        show_yaxis_ticks = config['show_yaxis_ticks']
+    if args.show_yaxis_ticks is True:
+        show_yaxis_ticks = True
+    if show_yaxis_ticks is False:
+        ax.get_yaxis().set_ticks([])
 
 
 def main():
@@ -1066,36 +1096,35 @@ def main():
         xsim_outputs, basis, lanczos = get_xsim_outputs(args)
 
     shift_eV = find_shift(xsim_outputs, args, config)
-    left, right, gamma = find_left_right_gamma(xsim_outputs, args, config)
+    *xlims, gamma = find_left_right_gamma(xsim_outputs, args, config)
     xsim_outputs = apply_shift(xsim_outputs, shift_eV)
     fig, ax = get_fig_and_ax(args, config)
 
-    envelope_max_y = add_envelope(ax, args, config, xsim_outputs, left, right,
-                                  gamma)
-    max_peak = add_peaks(ax, xsim_outputs, args, config)
+    envelope_max_y = add_envelope(ax, args, config, xsim_outputs, xlims, gamma)
+    max_peak = add_peaks(ax, args, config, xsim_outputs, xlims)
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
 
     top_feature = max(envelope_max_y, max_peak)
     add_assignmnets(args, ax, top_feature)
 
-    set_limits(args, ax, left, right)
+    set_limits(args, ax, xlims)
 
     origin = get_origin(xsim_outputs)
     add_minor_ticks(args, config, ax)
     add_second_axis(args, config, ax, origin)
 
-    show_yaxis_ticks = False
-    if 'show_yaxis_ticks' in config:
-        show_yaxis_ticks = config['show_yaxis_ticks']
-    if args.show_yaxis_ticks is True:
-        show_yaxis_ticks = True
-    if show_yaxis_ticks is False:
-        ax.get_yaxis().set_ticks([])
+    customize_yaxsim_ticks(args, config, ax)
 
     fig.tight_layout()
 
-    filename = prepare_filename(args)
+    filename = prepare_filename(args, config)
+    dont_save = False
+    if 'dont_save' in config:
+        dont_save = config['dont_save']
     if args.dont_save is True:
+        dont_save = True
+
+    if dont_save is True:
         plt.show()
     else:
         print(f"File saved as: {filename}")
