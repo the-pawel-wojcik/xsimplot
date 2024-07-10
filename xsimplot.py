@@ -85,7 +85,7 @@ def parse_command_line():
                         help=help,
                         type=str,
                         choices=["ozone", "ozone_zeke", "ozone_dyke",
-                                 "ozone_no_cpl", "pyrazine_abs1", "pyrazine", "caoph"])
+                                 "ozone_no_cpl", "pyrazine", "caoph"])
 
     parser.add_argument("-n", "--no_parser",
                         help="Use the fort.20 outputs of xsim as the source of"
@@ -218,7 +218,17 @@ def get_xsim_outputs_from_fort20(args):
         first_peak_cm = float(fort20[1].split()[0]) * eV2CM
         for peak in fort20[1:]:
             peak = peak.split()
-            intensity = float(peak[1])
+            try:
+                intensity = float(peak[1])
+            except ValueError:
+                # for tiny tiny intensities xsim produces garbage, i.e.:
+                # 6.86644579832093   0.159775868164848-105  39294.6062024455
+                exponent = int(peak[1][-4:])
+                if exponent < -99:
+                    continue
+                print("Error: cannot process the line:" + peak,
+                      file=sys.stderr)
+                sys.exit(1)
             if intensity < DISREGARD_INTENSITY:
                 continue
             offset = float(peak[2])
@@ -297,8 +307,6 @@ def find_shift(xsim_outputs, args, config):
         #     first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
         elif args.molecule == "pyrazine":
             first_peak_position = PYRAZINE_ABSORPTION_ORIGIN_CM * CM2eV
-        elif args.molecule in ["pyrazine_abs1"]:
-            first_peak_position = PYRAZINE_ABSORPTION_ORIGIN_CM * CM2eV
 
     if first_peak_position is not None:
         origins = []
@@ -344,9 +352,6 @@ def find_left_right_gamma(xsim_outputs, args, config, how_far: int = 4):
             # # For 1st band absorption
             # left = 3.5
             # right = 4.5
-        elif args.molecule == "pyrazine_abs1":
-            left = 3.5
-            right = 4.5
 
         elif args.molecule == "caoph":
             left = 1.95
@@ -421,23 +426,24 @@ def add_envelope(ax, args, config, xsim_outputs, xlims, gamma):
                             alpha=0.2)
         accumutated_ys += state_spectrum
 
-    # dashed = (0, (5, 5))
-    # densly_dashdotted = (0, (3, 1, 1, 1))
+    dashed = (0, (5, 5))
+    densly_dashdotted = (0, (3, 1, 1, 1))
     # Plot the total spectrum extra for overlay
     if envelope_type in ["overlay", "sum only"]:
-        # if args.molecule == "ozone_dyke":
-        #     ax.fill_between(xs, accumutated_ys, np.zeros_like(xs),
-        #                     color='tab:green', alpha=0.2, label='simulation')
-        # else:
-        ax.plot(xs, accumutated_ys, color='tab:gray', lw=1)
-        # Dyke-like
-        # ax.plot(xs, accumutated_ys, color='k', lw=1, ls=densly_dashdotted,
-        #         label='simulation')
+        if args.molecule == "ozone_dyke":
+            # Dyke-like
+            # ax.fill_between(xs, accumutated_ys, np.zeros_like(xs),
+            #                 color='tab:green', alpha=0.2, label='simulation')
+            ax.plot(xs, accumutated_ys, color='tab:blue', lw=1.5,
+                    ls=densly_dashdotted, label='simulation')
+            ax.plot([], [], color='k', lw=1.5, label="experiment")
+        else:
+            ax.plot(xs, accumutated_ys, color='tab:gray', lw=1)
 
     fig_max_y = np.max(accumutated_ys)
 
-    # if args.molecule == "other":
-    #     ax.legend()
+    if args.molecule == "ozone_dyke":
+        ax.legend()
 
     return fig_max_y
 
@@ -533,8 +539,6 @@ def add_caoph_lines(ax, top_feature):
     ]
 
     max_height = max([x['height'] for x in CAOPH_LINES])
-
-    # TODO: continue here
 
     # top_feature = 0.038
     # For now I print only the first band
@@ -653,36 +657,38 @@ def add_ZEKE_lines(ax, top_feature):
     ax.vlines(x_ev, 0.0, y_bottom, color='gray', linestyles='solid',
               linewidths=1, alpha=0.2)
 
+    CONICAL_INTERSECTION = 104194.3
+    x = CONICAL_INTERSECTION
+    x_ev = x * CM2eV
+    lttr = 'CI'
+    ax.text(x_ev, y_top, lttr, va='center', ha='center')
+    ax.vlines(x_ev, 0.0, y_bottom, color='gray', linestyles=':',
+              linewidths=1, alpha=0.2)
+
 
 def add_assignmnet_to_ZEKE_lines(ax, top_feature):
 
     uncoupled_like = [
-        [0, "A000"], [618, "A010"], [1076, "A100"],
-        [1222, "A020"], [1368, "B000"], [1684, "A110"],
+        [0, "A000"],
+        [618, "A010"],
+        # [915, r"A001$^*$"],
+        [915, r"A001"],
+        [1076, "A100"],
+        [1222, "A020"],
+        [1368, "B000"],
+        [1684, "A110"],
     ]
 
     leading_order = [
         [1796, "A030", 0.87],
         [1921, "B010", 0.74],
+        [2275, "A120", 0.74],
+        [2362, "A040", 0.38],
+        [2886, "A130", 0.66],
+        [3045, "A050", 0.58],
     ]
 
-    # X001 (915cm-1) =
-    # B000next (1498cm-1) =
-    #  -0.10 (B000)
-    # [1796, "A030"] (87)
-    #  -0.16 (A110)
-    #  -0.13 (A020)
-    #   0.13 (A040)
-    # X030n1 (1848cm-1) =
-    #   0.31 (A030)
-    # B010 (1921cm-1) =
-    #  -0.74 (B010)
-    #   0.18 (B020)
-    #   0.11 (B000)
-    # B010n1 (1977cm-1) =
-    #   0.24 (B010)
-
-    text_kw = dict(va='bottom', ha='left', rotation=40,
+    text_kw = dict(va='bottom', ha='left', rotation=35,
                    rotation_mode='anchor')
 
     y_top = top_feature
@@ -693,6 +699,28 @@ def add_assignmnet_to_ZEKE_lines(ax, top_feature):
         pos = peak[0]
         name = peak[1]
         assignmnet = ""
+        if name[0] == "A":
+            assignmnet += r"A$_1("
+        elif name[0] == "B":
+            assignmnet += r"B$_2("
+        assignmnet += name[1:4]
+        assignmnet += ")$"
+        if len(name) > 4:
+            assignmnet += name[4:]
+
+        x = pos + ZEKE_ADIABATIC_IE_CM
+        x_ev = x * CM2eV
+        xs.append(x_ev)
+        ax.text(x_ev, y_top, assignmnet, **text_kw)
+
+    # ax.vlines(xs, 0.0, y_bottom, color='gray', linestyles='solid',
+    #           linewidths=1, alpha=0.2)
+
+    for peak in leading_order[:-2]:
+        pos = peak[0]
+        name = peak[1]
+        percentage = peak[2]
+        assignmnet = f"{100*percentage**2:.0f}%"
         if name[0] == "A":
             assignmnet += r"A$_1$("
         elif name[0] == "B":
@@ -705,10 +733,10 @@ def add_assignmnet_to_ZEKE_lines(ax, top_feature):
         xs.append(x_ev)
         ax.text(x_ev, y_top, assignmnet, **text_kw)
 
-    # ax.vlines(xs, 0.0, y_bottom, color='gray', linestyles='solid',
-    #           linewidths=1, alpha=0.2)
+    text_kw = dict(va='bottom', ha='right', rotation=-20,
+                   rotation_mode='anchor')
 
-    for peak in leading_order:
+    for peak in leading_order[-2:]:
         pos = peak[0]
         name = peak[1]
         percentage = peak[2]
@@ -935,10 +963,6 @@ def add_cm_scale(ax, args, config, origin_eV: float = None):
     #     ax_cm.xaxis.set_minor_locator(MultipleLocator(100))
     #     ax.xaxis.set_minor_locator(MultipleLocator(0.01))
 
-    elif args.molecule == "pyrazine_abs1":
-        ax_cm.xaxis.set_minor_locator(MultipleLocator(250))
-        ax.xaxis.set_minor_locator(MultipleLocator(0.05))
-
 
 def add_nm_scale(args, ax):
     r"""
@@ -962,19 +986,21 @@ def add_nm_scale(args, ax):
 
 
 def get_fig_and_ax(args, config):
-    if args.molecule == "ozone_zeke":
-        fig, ax = plt.subplots(figsize=(8.330, 1.563))
-    elif args.molecule == "ozone_dyke":
-        resize = args.scale_factor
-        resize_y = 1.265
-        fig, ax = plt.subplots(
-            figsize=(10.25 * resize, 12.44 * resize * resize_y))
-
     scale_factor = 1.0
     if 'scale_factor' in config:
         scale_factor = config['scale_factor']
     if args.scale_factor is not None:
         scale_factor = args.scale_factor
+
+    if args.molecule == "ozone_zeke":
+        fig, ax = plt.subplots(figsize=(8.330, 1.563))
+        return fig, ax
+    elif args.molecule == "ozone_dyke":
+        resize = scale_factor
+        resize_y = 1.265
+        fig, ax = plt.subplots(
+            figsize=(10.25 * resize, 12.44 * resize * resize_y))
+        return fig, ax
 
     aspect_ratio = 1.0
     if 'aspect_ratio' in config:
@@ -990,10 +1016,9 @@ def add_assignmnets(args, ax, top_feature):
         if args.molecule == "ozone":
             add_ZEKE_lines(ax, top_feature)
 
-        elif args.molecule == "ozone_zeke":
-            # add_ZEKE_lines(ax, 1.1)
-            add_assignmnet_to_ZEKE_lines(ax, 1.0)
-
+        # elif args.molecule == "ozone_zeke":
+        #     # add_ZEKE_lines(ax, 1.1)
+        #     add_assignmnet_to_ZEKE_lines(ax, 1.0)
         elif args.molecule == "ozone_no_cpl":
             # add_ZEKE_lines(ax, top_feature)
             add_no_cpl_lines(ax)
@@ -1028,13 +1053,6 @@ def set_limits(args, ax, xlims):
             # ax.set_ylim([0.0, 0.0040])
             # The offset example
             # ax.set_ylim([0.0, 0.027])
-
-        elif args.molecule == "pyrazine_abs1":
-            scale = 1e3
-            ticks = ticker.FuncFormatter(
-                lambda x, pos: '{0:g}'.format(x*scale))
-            ax.yaxis.set_major_formatter(ticks)
-        #     ax.set_ylim([0.0, 0.0025])  # The best one
 
         elif args.molecule == "ozone":
             ax.set_xlim([12.4, 13.3])
@@ -1106,6 +1124,14 @@ def main():
 
     top_feature = max(envelope_max_y, max_peak)
     add_assignmnets(args, ax, top_feature)
+    # if args.molecule == "ozone_zeke":
+    #     ci_ozone_cation_cm = 104024.87948
+    #     ci_ozone_cation_eV = ci_ozone_cation_cm * CM2eV
+    #     # text_kw = dict(va='bottom', ha='right', rotation=-20,
+    #     #                rotation_mode='anchor')
+    #     xs = ci_ozone_cation_eV + shift_eV
+    #     ax.vlines(xs, 0.0, 2.0, color='gray', linestyles='solid',
+    #               linewidths=1, alpha=0.2)
 
     set_limits(args, ax, xlims)
 
