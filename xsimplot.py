@@ -292,21 +292,21 @@ def find_shift(xsim_outputs, args, config):
     if args.match_origin is not None:
         first_peak_position = args.match_origin
 
-    if args.molecule is not None:
-        if args.molecule == "ozone":
-            # Position of the first ionization energy of ozone
-            first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
-        elif args.molecule == "ozone_zeke":
-            # Position of the first ionization energy of ozone
-            first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
-        elif args.molecule == "ozone_dyke":
-            # Position of the first ionization energy of ozone
-            first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
-        # elif args.molecule == "ozone_no_cpl":
-        #     # Position of the first ionization energy of ozone
-        #     first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
-        elif args.molecule == "pyrazine":
-            first_peak_position = PYRAZINE_ABSORPTION_ORIGIN_CM * CM2eV
+    # if args.molecule is not None:
+    #     if args.molecule == "ozone":
+    #         # Position of the first ionization energy of ozone
+    #         first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+    #     elif args.molecule == "ozone_zeke":
+    #         # Position of the first ionization energy of ozone
+    #         first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+    #     elif args.molecule == "ozone_dyke":
+    #         # Position of the first ionization energy of ozone
+    #         first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+    #     # elif args.molecule == "ozone_no_cpl":
+    #     #     # Position of the first ionization energy of ozone
+    #     #     first_peak_position = ZEKE_ADIABATIC_IE_CM * CM2eV
+    #     elif args.molecule == "pyrazine":
+    #         first_peak_position = PYRAZINE_ABSORPTION_ORIGIN_CM * CM2eV
 
     if first_peak_position is not None:
         origins = []
@@ -329,21 +329,20 @@ def find_left_right_gamma(xsim_outputs, args, config, how_far: int = 4):
     gamma_eV = find_gamma(args, config)
 
     # Commnad line is the most important
-    if args.molecule is not None:
-        if args.molecule == "ozone" or args.molecule == "ozone_zeke":
-            # First photoelectron band of ozone
-            left = 12.225
-            right = 13.375
-        elif args.molecule == "ozone_dyke":
-            left = 12.25
-            right = 13.40
+    if args.molecule is not None and args.molecule not in [
+            "ozone_dyke", "ozone", "ozone_zeke", "ozone_no_cpl"
+    ]:
+        # if args.molecule == "ozone" or args.molecule == "ozone_zeke":
+        #     # First photoelectron band of ozone
+        #     left = 12.225
+        #     right = 13.375
 
-        elif args.molecule == "ozone_no_cpl":
-            # First photoelectron band of ozone
-            left = 12.225
-            right = 13.375
+        # if args.molecule == "ozone_no_cpl":
+        #     # First photoelectron band of ozone
+        #     left = 12.225
+        #     right = 13.375
 
-        elif args.molecule == "pyrazine":
+        if args.molecule == "pyrazine":
             # First absorption band of pyrazine
             # left = 3.75
             # right = 4.25
@@ -986,28 +985,24 @@ def add_nm_scale(args, ax):
 
 
 def get_fig_and_ax(args, config):
+
+    # Scale factor is used to resize the figure in both direction
+    # Making the figures smaller is the same as making the text larger
     scale_factor = 1.0
     if 'scale_factor' in config:
         scale_factor = config['scale_factor']
     if args.scale_factor is not None:
         scale_factor = args.scale_factor
 
-    if args.molecule == "ozone_zeke":
-        fig, ax = plt.subplots(figsize=(8.330, 1.563))
-        return fig, ax
-    elif args.molecule == "ozone_dyke":
-        resize = scale_factor
-        resize_y = 1.265
-        fig, ax = plt.subplots(
-            figsize=(10.25 * resize, 12.44 * resize * resize_y))
-        return fig, ax
-
+    # Aspect ratio = width/height
+    # width = height * ar
     aspect_ratio = 1.0
     if 'aspect_ratio' in config:
         aspect_ratio = config['aspect_ratio']
 
+    # The default figure size is 12cm x 12 cm. Smaller should be better.
     FIGSIZE = 12 * CM2INCH * scale_factor
-    fig, ax = plt.subplots(figsize=(FIGSIZE, FIGSIZE*aspect_ratio))
+    fig, ax = plt.subplots(figsize=(FIGSIZE * aspect_ratio, FIGSIZE))
     return fig, ax
 
 
