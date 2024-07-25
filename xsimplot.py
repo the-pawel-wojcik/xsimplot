@@ -1041,7 +1041,7 @@ def get_fig_and_ax(args, config):
     return fig, ax
 
 
-def add_assignmnets(args, ax, top_feature):
+def add_assignmnets(ax, args, config, top_feature):
     if args.molecule is not None:
         if args.molecule == "ozone":
             add_ZEKE_lines(ax, top_feature)
@@ -1061,6 +1061,41 @@ def add_assignmnets(args, ax, top_feature):
 
         elif args.molecule == "caoph":
             add_caoph_lines(ax, top_feature)
+
+    if "reference_peaks" not in config:
+        return
+
+    # TODO: assure that reference_peaks are propertly formatted.
+
+    peaks = config['reference_peaks']
+    for peak in peaks:
+        energy = peak['energy']
+        energy_unit = peak['energy_unit']
+        amplitude = peak['amplitude']
+        assignment = peak['assignment']
+
+        if energy_unit != "eV":
+            print("Error: energy units other than eV are not supported in"
+                  " 'reference_peaks' array.", file=sys.stderr)
+            sys.exit(1)
+        x_eV = energy
+
+        text_kwargs = {
+            'ha': 'center',
+        }
+        if amplitude < 0.0:
+            text_kwargs['va'] = 'top'
+        else:
+            text_kwargs['va'] = 'bottom'
+
+        line_kwargs = {
+            'color': 'k',
+            'linestyles': 'solid',
+            # 'linewidths': 1,
+            # 'alpha': 0.8
+        }
+        ax.text(x_eV, amplitude, assignment, **text_kwargs)
+        ax.vlines([x_eV], 0.0, [amplitude], **line_kwargs)
 
 
 def set_limits(args, ax, xlims):
@@ -1153,7 +1188,7 @@ def main():
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
 
     top_feature = max(envelope_max_y, max_peak)
-    add_assignmnets(args, ax, top_feature)
+    add_assignmnets(ax, args, config, top_feature)
     # if args.molecule == "ozone_zeke":
     #     ci_ozone_cation_cm = 104024.87948
     #     ci_ozone_cation_eV = ci_ozone_cation_cm * CM2eV

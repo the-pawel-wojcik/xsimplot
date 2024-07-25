@@ -16,6 +16,20 @@ but then you need to give the name to the script using the `-c` option.
 If an option is specified both in the config file and on the command line, the
 command line value is used.
 
+### Options available only from the config file
+
+A list of reference peaks was made to enable simple comparison with
+experimental spectra. 
+```toml
+[[reference_peaks]]
+energy = 1.0  # float
+energy_unit = "eV"  # currently supporting only eV
+amplitude = 1.0  # float
+assignment = "$1 ^0 _1$"  # str
+```
+To add multiple peaks add one entry like that for each peak, see [array of
+tables in TOML](https://toml.io/en/v1.0.0#array-of-tables).
+
 ## Dependencies 
 
 ### Extras
