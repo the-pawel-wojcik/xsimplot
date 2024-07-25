@@ -51,6 +51,13 @@ def parse_command_line():
                         default="",
                         type=str)
 
+    parser.add_argument("-p", "--position_annotation",
+                        help="Place the annotation at",
+                        choices=["top left", "center", "top right"],
+                        default=None,
+                        type=str
+                        )
+
     parser.add_argument("-c", "--config",
                         help="Pick config file.",
                         default="xsimplot.toml")
@@ -479,12 +486,40 @@ def add_peaks(ax, args, config, xsim_outputs, xlims):
 
 
 def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
-    info_kwargs = {'horizontalalignment': 'left',
-                   'verticalalignment': 'top',
-                   'fontsize': FONTSIZE,
-                   'color': 'k',
-                   'transform': ax.transAxes,
-                   }
+
+    info_kwargs = {
+        'verticalalignment': 'top',
+        'fontsize': FONTSIZE,
+        'color': 'k',
+        'transform': ax.transAxes,
+    }
+
+    # the options translated to settings
+    horizontalalignment = {
+            "top left": "left",
+            "center": "center",
+            "top right": "right",
+            }
+
+    x_position = {
+            "top left": 0.01,
+            "center": 0.5,
+            "top right": 0.99,
+            }
+
+    position = "top left"  # default
+    if 'position_annotation' in config:  # allow to set it from the config
+        position = config['position_annotation']
+        if position not in x_position:
+            print("Error: Invalid option present in the config file:\n\t"
+                  f"position_annotation = '{position}'\n\t"
+                  f"Allowed values: {", ".join(x_position.keys())}",
+                  file=sys.stderr)
+            sys.exit(1)
+    if args.position_annotation is not None:  # comman line can overwrite
+        position = args.position_annotation
+
+    info_kwargs['horizontalalignment'] = horizontalalignment[position]
 
     text = ""
 
@@ -528,7 +563,7 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
             print("Warning: The annotation texts needs to start with either"
                   " 'a' or 'o', see help for details.", file=sys.stderr)
 
-    ax.text(0.01, 0.99, text, **info_kwargs)
+    ax.text(x_position[position], 0.99, text, **info_kwargs)
 
 
 def add_caoph_lines(ax, top_feature):
