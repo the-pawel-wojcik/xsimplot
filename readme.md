@@ -23,7 +23,7 @@ experimental spectra.
 ```toml
 [[reference_peaks]]
 energy = 1.0  # float
-energy_unit = "eV"  # currently supporting only eV
+energy_unit = "eV"  # currently supporting only "eV" and "cm-1"
 amplitude = 1.0  # float
 assignment = "$1 ^0 _1$"  # str
 ```

@@ -1067,18 +1067,26 @@ def add_assignmnets(ax, args, config, top_feature):
 
     # TODO: assure that reference_peaks are propertly formatted.
 
+    supported_units = {
+        "eV": lambda x: x,
+        "cm-1": lambda x: x * CM2eV,
+    }
+
+    # HACK:
+    scale_assignment_peaks = -2e-5
     peaks = config['reference_peaks']
     for peak in peaks:
         energy = peak['energy']
         energy_unit = peak['energy_unit']
-        amplitude = peak['amplitude']
+        amplitude = peak['amplitude'] * scale_assignment_peaks
         assignment = peak['assignment']
 
-        if energy_unit != "eV":
-            print("Error: energy units other than eV are not supported in"
-                  " 'reference_peaks' array.", file=sys.stderr)
+        if energy_unit not in supported_units:
+            print(f"Error: energy units other than {supported_units.keys()}"
+                  " are not supported in 'reference_peaks' array.",
+                  file=sys.stderr)
             sys.exit(1)
-        x_eV = energy
+        x_eV = supported_units[energy_unit](energy)
 
         text_kwargs = {
             'ha': 'center',
