@@ -59,7 +59,8 @@ def parse_command_line():
                         )
 
     parser.add_argument("-c", "--config",
-                        help="Pick config file.",
+                        help="Pick config file. "
+                        "If not specified, look for xsimplot.toml.",
                         default="xsimplot.toml")
 
     parser.add_argument("-e", "--envelope",
@@ -74,13 +75,13 @@ def parse_command_line():
                         type=float,
                         default=None)
 
-    parser.add_argument("-k", "--horizonal_minor_ticks_2nd_axis",
+    parser.add_argument("-k", "--horizontal_minor_ticks_2nd_axis",
                         help="Specify the interval at which the minor ticks"
                         " should appear.",
                         type=float,
                         default=None)
 
-    parser.add_argument("-K", "--horizonal_minor_ticks",
+    parser.add_argument("-K", "--horizontal_minor_ticks",
                         help="Specify the interval at which the minor ticks"
                         " should appear.",
                         type=float,
@@ -919,15 +920,15 @@ def get_origin(xsim_outputs):
 
 def add_minor_ticks(args, config, ax):
     interval = None
-    if 'horizonal_minor_ticks' in config:
-        interval = config['horizonal_minor_ticks']
-    if args.horizonal_minor_ticks is not None:
-        interval = args.horizonal_minor_ticks
+    if 'horizontal_minor_ticks' in config:
+        interval = config['horizontal_minor_ticks']
+    if args.horizontal_minor_ticks is not None:
+        interval = args.horizontal_minor_ticks
 
     if interval is None:
         return
 
-    ax.xaxis.set_minor_locator(MultipleLocator(0.05))
+    ax.xaxis.set_minor_locator(MultipleLocator(interval))
 
 
 def add_second_axis(args, config, ax, origin_eV):
@@ -967,10 +968,10 @@ def add_cm_scale(ax, args, config, origin_eV: float = None):
     ax_cm.set_xlim(x1, x2)
 
     interval = None
-    if 'horizonal_minor_ticks_2nd_axis' in config:
-        interval = config['horizonal_minor_ticks_2nd_axis']
-    if args.horizonal_minor_ticks_2nd_axis is not None:
-        interval = args.horizonal_minor_ticks_2nd_axis
+    if 'horizontal_minor_ticks_2nd_axis' in config:
+        interval = config['horizontal_minor_ticks_2nd_axis']
+    if args.horizontal_minor_ticks_2nd_axis is not None:
+        interval = args.horizontal_minor_ticks_2nd_axis
 
     if interval is not None:
         ax_cm.xaxis.set_minor_locator(MultipleLocator(interval))
