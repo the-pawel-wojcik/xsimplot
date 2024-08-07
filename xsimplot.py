@@ -28,19 +28,60 @@ eV2CM = 8065.543937
 PYRAZINE_ABSORPTION_ORIGIN_CM = 30876
 
 
+def ezFCF_label_helper(state):
+    """
+    turn st_number(n1vm1,n2vm2,...) into {m1: n1, m2: n2, ...}
+    """
+    vibrational_state = state.split('(')[1][:-1]  # omg )
+    if vibrational_state == "0":
+        return {}
+    excitations = vibrational_state.split(',')
+    out = {}
+    for excitation in excitations:
+        n_quanta, n_mode = excitation.split('v')
+        out[int(n_mode)] = int(n_quanta)
+    return out
+
+
+def ezFCF_label_to_spectroscopic_label(assignment: str,
+                                       first_is_the_lowest: bool = True):
+    initial, final = assignment.split('->')
+    initial = ezFCF_label_helper(initial)
+    final = ezFCF_label_helper(final)
+    active_modes = set(initial.keys()).union(set(final.keys()))
+    active_modes = list(active_modes)
+    active_modes.sort()
+    if len(active_modes) == 0:
+        return "0"
+
+    out_str = ""
+    for mode in active_modes:
+        quanta_initial = 0
+        if mode in initial:
+            quanta_initial = initial[mode]
+        quanta_final = 0
+        if mode in final:
+            quanta_final = final[mode]
+
+        if first_is_the_lowest is True:
+            up = quanta_final
+            down = quanta_initial
+        else:
+            up = quanta_initial
+            down = quanta_final
+        out_str += f"{mode}$^{up}_{down}$"
+    return out_str
+
+
 def parse_command_line():
     # Parse the command line arguments.
 
-    parser = argparse.ArgumentParser(
-        description="Plot output of the xsim program.\nUse the -n flag and"
-        " work with the fort.20 output files if you do not have xsim parser"
-        " installed.")
+    parser = argparse.ArgumentParser(description="Plot vibronic spectrum.")
 
     parser.add_argument("output_files",
-                        help="List of xsim output files "
-                        "(requires xsim parser). "
-                        "If the -n flag is up, it's a list of fort.20 files "
-                        "(no extra programs required).",
+                        help="List of files with the spectrum."
+                        "The -n (--spectrum_format) flag controls the "
+                        "spectrum format.",
                         nargs="+")
 
     parser.add_argument("-a", "--annotate",
@@ -95,11 +136,12 @@ def parse_command_line():
                         choices=["ozone", "ozone_zeke", "ozone_dyke",
                                  "ozone_no_cpl", "pyrazine", "caoph"])
 
-    parser.add_argument("-n", "--no_parser",
-                        help="Use the fort.20 outputs of xsim as the source of"
-                        " spectrum information.",
-                        default=False,
-                        action='store_true')
+    parser.add_argument("-n", "--spectrum_format",
+                        help="Chose the format of the spectrum file. 'xsim'"
+                        "requires additional parser.",
+                        default=None,  # defaults to fort.20 see code
+                        type=str,
+                        choices=["xsim", "fort.20", "ezFCF"])
 
     parser.add_argument("-r", "--scale_factor",
                         help="Scale the figure size with the factor.",
@@ -280,6 +322,35 @@ def get_xsim_outputs(args):
                   file=sys.stderr)
 
     return xsim_outputs, basis, lanczos
+
+
+def get_ezFCF_spectrum(args):
+    spectra = []
+    for file_idx, out_file in enumerate(args.output_files):
+        with open(out_file) as f:
+            lines = f.readlines()
+
+        ezFCF_spectrum = []
+        for line in lines:
+            splitline = line.split()
+            data = {
+                'Energy (eV)': float(splitline[0]),
+                'Relative intensity': float(splitline[1]),
+                'FCF': float(splitline[2]),
+                'ezFCF assignment': splitline[4],
+            }
+            ezFCF_spectrum += [data]
+
+        # Add other data that xsim offers
+        origin_eV = ezFCF_spectrum[0]['Energy (eV)']
+        for peak in ezFCF_spectrum:
+            energy_eV = peak['Energy (eV)']
+            peak['Energy (cm-1'] = energy_eV * eV2CM
+            peak['Offset (cm-1'] = (energy_eV - origin_eV) * eV2CM
+
+        spectra += [ezFCF_spectrum]
+
+    return spectra
 
 
 def find_shift(xsim_outputs, args, config):
@@ -497,16 +568,16 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
 
     # the options translated to settings
     horizontalalignment = {
-            "top left": "left",
-            "center": "center",
-            "top right": "right",
-            }
+        "top left": "left",
+        "center": "center",
+        "top right": "right",
+    }
 
     x_position = {
-            "top left": 0.01,
-            "center": 0.5,
-            "top right": 0.99,
-            }
+        "top left": 0.01,
+        "center": 0.5,
+        "top right": 0.99,
+    }
 
     position = "top left"  # default
     if 'position_annotation' in config:  # allow to set it from the config
@@ -1107,6 +1178,31 @@ def add_assignmnets(ax, args, config, top_feature):
         ax.vlines([x_eV], 0.0, [amplitude], **line_kwargs)
 
 
+def add_ezFCF_assignmnets(ax, args, config, spectra, top_feature):
+    for peaks in spectra:
+        for peak in peaks:
+            energy_eV = peak['Energy (eV)']
+            amplitude = peak['Relative intensity']
+            assignment = peak['ezFCF assignment']
+
+            text_kwargs = {
+                'ha': 'center',
+                'va': 'bottom',
+            }
+            # Disregard small features
+            if amplitude < 0.025 * top_feature:
+                continue
+
+            # if assignment.startswith("0(0)->"):
+            #     text = assignment[8:-1]
+            # else:
+            #     text = assignment
+
+            text = ezFCF_label_to_spectroscopic_label(assignment)
+
+            ax.text(energy_eV, amplitude, text, **text_kwargs)
+
+
 def set_limits(args, ax, xlims):
 
     ax.set_xlim([xlims[0], xlims[1]])
@@ -1177,26 +1273,57 @@ def customize_yaxsim_ticks(args, config, ax):
         ax.get_yaxis().set_ticks([])
 
 
+def collect_spectra(args, config):
+    # The format can be specified in the config file
+    spectrum_format = None
+    if 'spectrum_format' in config:
+        if config['spectrum_format'] not in ['xsim', 'fort.20', 'ezFCF']:
+            print("Error: the config file contains invalid spectrum format\n"
+                  f"\tspectrum_format = {config['format']}",
+                  file=sys.stderr)
+            sys.exit(1)
+        spectrum_format = config['format']
+    # The command line can override it
+    if args.spectrum_format is not None:
+        spectrum_format = args.spectrum_format
+    # if not specified it defaults to fort.20
+    if spectrum_format is None:
+        spectrum_format = "fort.20"
+
+    if spectrum_format == "fort.20":
+        basis = None
+        spectra, lanczos = get_xsim_outputs_from_fort20(args)
+    elif spectrum_format == "xsim":
+        spectra, basis, lanczos = get_xsim_outputs(args)
+    elif spectrum_format == "ezFCF":
+        basis = None
+        lanczos = None
+        spectra = get_ezFCF_spectrum(args)
+    else:
+        print(f"Error: Unknown spectrum format {spectrum_format}",
+              file=sys.stderr)
+
+    return spectra, basis, lanczos, spectrum_format
+
+
 def main():
     args = parse_command_line()
     config = get_config(args)
 
-    if args.no_parser is True or 'fort20' in config:
-        basis = None
-        xsim_outputs, lanczos = get_xsim_outputs_from_fort20(args)
-    else:
-        xsim_outputs, basis, lanczos = get_xsim_outputs(args)
+    spectra, basis, lanczos, spectrum_format = collect_spectra(args, config)
 
-    shift_eV = find_shift(xsim_outputs, args, config)
-    *xlims, gamma = find_left_right_gamma(xsim_outputs, args, config)
-    xsim_outputs = apply_shift(xsim_outputs, shift_eV)
+    shift_eV = find_shift(spectra, args, config)
+    *xlims, gamma = find_left_right_gamma(spectra, args, config)
+    spectra = apply_shift(spectra, shift_eV)
     fig, ax = get_fig_and_ax(args, config)
 
-    envelope_max_y = add_envelope(ax, args, config, xsim_outputs, xlims, gamma)
-    max_peak = add_peaks(ax, args, config, xsim_outputs, xlims)
+    envelope_max_y = add_envelope(ax, args, config, spectra, xlims, gamma)
+    max_peak = add_peaks(ax, args, config, spectra, xlims)
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
 
     top_feature = max(envelope_max_y, max_peak)
+    if spectrum_format == "ezFCF":
+        add_ezFCF_assignmnets(ax, args, config, spectra, top_feature)
     add_assignmnets(ax, args, config, top_feature)
     # if args.molecule == "ozone_zeke":
     #     ci_ozone_cation_cm = 104024.87948
@@ -1209,7 +1336,7 @@ def main():
 
     set_limits(args, ax, xlims)
 
-    origin = get_origin(xsim_outputs)
+    origin = get_origin(spectra)
     add_minor_ticks(args, config, ax)
     add_second_axis(args, config, ax, origin)
 
