@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import argparse
+import csv
 import os
 import sys
 import math as m
@@ -26,6 +27,11 @@ CM2eV = 1./8065.543937
 eV2CM = 8065.543937
 
 PYRAZINE_ABSORPTION_ORIGIN_CM = 30876
+
+supported_units = {
+    "eV": lambda x: x,
+    "cm-1": lambda x: x * CM2eV,
+}
 
 
 def ezFCF_label_helper(state):
@@ -625,12 +631,13 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
         annotation = args.annotate
 
     if annotation != "":
+        text_with_newline = "\n".join(annotation[1:].split(r'\n'))
         # append
         if annotation[0] == "a":
-            text += "\n" + annotation[1:]
+            text += "\n" + text_with_newline
         # overwrite
         elif annotation[0] == "o":
-            text = annotation[1:]
+            text = text_with_newline
         else:
             print("Warning: The annotation texts needs to start with either"
                   " 'a' or 'o', see help for details.", file=sys.stderr)
@@ -1113,7 +1120,7 @@ def get_fig_and_ax(args, config):
     return fig, ax
 
 
-def add_assignmnets(ax, args, config, top_feature):
+def add_assignments(ax, args, config, top_feature):
     if args.molecule is not None:
         if args.molecule == "ozone":
             add_ZEKE_lines(ax, top_feature)
@@ -1137,14 +1144,10 @@ def add_assignmnets(ax, args, config, top_feature):
     if "reference_peaks" not in config:
         return
 
+    print("Info: Adding reference peaks from the config file.",
+          file=sys.stderr)
+
     # TODO: assure that reference_peaks are propertly formatted.
-
-    supported_units = {
-        "eV": lambda x: x,
-        "cm-1": lambda x: x * CM2eV,
-    }
-
-    # HACK:
     scale_assignment_peaks = -2e-5
     peaks = config['reference_peaks']
     for peak in peaks:
@@ -1178,7 +1181,120 @@ def add_assignmnets(ax, args, config, top_feature):
         ax.vlines([x_eV], 0.0, [amplitude], **line_kwargs)
 
 
-def add_ezFCF_assignmnets(ax, args, config, spectra, top_feature):
+def collect_reference_spectra_config(spectrum):
+    unit = 'eV'
+    if 'energy_units' in spectrum:
+        unit = spectrum['energy_units']
+        if unit not in supported_units:
+            print("Error: energy units other than "
+                  f"{supported_units.keys()}"
+                  " are not supported by 'reference_spectrum'.",
+                  file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("Info: Energy unit in the reference_spectrum section of the"
+              " config file is not specified. Using the default: 'eV'.",
+              file=sys.stderr)
+
+    rescale_factor = 1.0
+    if 'rescale_intensities' in spectrum:
+        rescale_factor = float(spectrum['rescale_intensities'])
+    else:
+        print("Info: rescale_intensities not specified in the "
+              "reference_spectrum section of the config file."
+              "Using intensities from the csv file.",
+              file=sys.stderr)
+
+    plot_type = 'stems'
+    if 'plot_type' in spectrum:
+        plot_type = spectrum['plot_type']
+    else:
+        print("Info: plot_type not specified in the "
+              "reference_spectrum section of the config file."
+              "Using the default.",
+              file=sys.stderr)
+
+    if plot_type not in ['scatter', 'stems']:
+        print("Error: The only supported values of 'plot_type' in the "
+              "'reference_spectrum' part of the config file are 'scatter'"
+              " and 'stems'", file=sys.stderr)
+        sys.exit(1)
+
+    if 'file' not in spectrum:
+        print("Error: 'reference_spectrum' is missing the 'file' line.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    file_name = spectrum['file']
+    file_name = os.path.expanduser(file_name)
+
+    return unit, rescale_factor, plot_type, file_name
+
+
+def plot_reference_spectra_assignments(
+        ax, spectrum_data, unit, rescale_factor
+):
+    convert_to_eV = supported_units[unit]
+    text_kwargs = {
+        'ha': 'center',
+    }
+    for peak in spectrum_data:
+        if peak['assignment'] is None:
+            continue
+        x_eV = convert_to_eV(float(peak['energy']))
+        amplitude = float(peak['intensity']) * rescale_factor
+        if amplitude < 0.0:
+            text_kwargs['va'] = 'top'
+        else:
+            text_kwargs['va'] = 'bottom'
+
+        text = peak['assignment']
+        ax.text(x_eV, amplitude, text, **text_kwargs)
+
+
+def add_reference_spectra(ax, args, config):
+    if "reference_spectrum" not in config:
+        return
+
+    for spectrum in config['reference_spectrum']:
+        unit, rescale_factor, plot_type, file_name = \
+            collect_reference_spectra_config(spectrum)
+
+        spectrum_data = []
+        assignments_are_available = False
+        with open(file_name, 'r', newline='') as spectrum_file:
+            reader = csv.DictReader(spectrum_file)
+            assignments_are_available = 'assignment' in reader.fieldnames
+            for row in reader:
+                spectrum_data += [row]
+
+        line_kwargs = {
+            'color': 'k',
+            'linestyles': 'solid',
+            # 'linewidths': 1,
+            # 'alpha': 0.8
+        }
+
+        if assignments_are_available is True:
+            plot_reference_spectra_assignments(
+                ax, spectrum_data, unit, rescale_factor
+            )
+
+        spectrum_list = [
+            [
+                supported_units[unit](float(row['energy'])),
+                float(row['intensity']) * rescale_factor,
+            ] for row in spectrum_data
+        ]
+        # transpose
+        xs, ys = [list(a) for a in zip(*spectrum_list)]
+        if plot_type == 'stems':
+            ax.vlines(xs, 0.0, ys, **line_kwargs)
+        elif plot_type == "scatter":
+            ax.scatter(xs, ys)
+
+
+def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
     for peaks in spectra:
         for peak in peaks:
             energy_eV = peak['Energy (eV)']
@@ -1192,11 +1308,6 @@ def add_ezFCF_assignmnets(ax, args, config, spectra, top_feature):
             # Disregard small features
             if amplitude < 0.025 * top_feature:
                 continue
-
-            # if assignment.startswith("0(0)->"):
-            #     text = assignment[8:-1]
-            # else:
-            #     text = assignment
 
             text = ezFCF_label_to_spectroscopic_label(assignment)
 
@@ -1279,10 +1390,10 @@ def collect_spectra(args, config):
     if 'spectrum_format' in config:
         if config['spectrum_format'] not in ['xsim', 'fort.20', 'ezFCF']:
             print("Error: the config file contains invalid spectrum format\n"
-                  f"\tspectrum_format = {config['format']}",
+                  f"\tspectrum_format = {config['spectrum_format']}",
                   file=sys.stderr)
             sys.exit(1)
-        spectrum_format = config['format']
+        spectrum_format = config['spectrum_format']
     # The command line can override it
     if args.spectrum_format is not None:
         spectrum_format = args.spectrum_format
@@ -1323,8 +1434,9 @@ def main():
 
     top_feature = max(envelope_max_y, max_peak)
     if spectrum_format == "ezFCF":
-        add_ezFCF_assignmnets(ax, args, config, spectra, top_feature)
-    add_assignmnets(ax, args, config, top_feature)
+        add_ezFCF_assignments(ax, args, config, spectra, top_feature)
+    add_assignments(ax, args, config, top_feature)
+    add_reference_spectra(ax, args, config)
     # if args.molecule == "ozone_zeke":
     #     ci_ozone_cation_cm = 104024.87948
     #     ci_ozone_cation_eV = ci_ozone_cation_cm * CM2eV
