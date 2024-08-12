@@ -1225,14 +1225,18 @@ def collect_reference_spectra_config(spectrum):
               file=sys.stderr)
         sys.exit(1)
 
+    y_offset = 0.0
+    if 'y_offset' in spectrum:
+        y_offset = spectrum['y_offset']
+
     file_name = spectrum['file']
     file_name = os.path.expanduser(file_name)
 
-    return unit, rescale_factor, plot_type, file_name
+    return unit, rescale_factor, plot_type, y_offset, file_name
 
 
 def plot_reference_spectra_assignments(
-        ax, spectrum_data, unit, rescale_factor
+        ax, spectrum_data, unit, rescale_factor, y_offset
 ):
     convert_to_eV = supported_units[unit]
     text_kwargs = {
@@ -1249,7 +1253,7 @@ def plot_reference_spectra_assignments(
             text_kwargs['va'] = 'bottom'
 
         text = peak['assignment']
-        ax.text(x_eV, amplitude, text, **text_kwargs)
+        ax.text(x_eV, y_offset + amplitude, text, **text_kwargs)
 
 
 def add_reference_spectra(ax, args, config):
@@ -1257,7 +1261,7 @@ def add_reference_spectra(ax, args, config):
         return
 
     for spectrum in config['reference_spectrum']:
-        unit, rescale_factor, plot_type, file_name = \
+        unit, rescale_factor, plot_type, y_offset, file_name = \
             collect_reference_spectra_config(spectrum)
 
         spectrum_data = []
@@ -1277,7 +1281,7 @@ def add_reference_spectra(ax, args, config):
 
         if assignments_are_available is True:
             plot_reference_spectra_assignments(
-                ax, spectrum_data, unit, rescale_factor
+                ax, spectrum_data, unit, rescale_factor, y_offset
             )
 
         spectrum_list = [
@@ -1289,9 +1293,15 @@ def add_reference_spectra(ax, args, config):
         # transpose
         xs, ys = [list(a) for a in zip(*spectrum_list)]
         if plot_type == 'stems':
-            ax.vlines(xs, 0.0, ys, **line_kwargs)
+            ax.vlines(
+                xs,
+                [y_offset for _ in ys],
+                [y + y_offset for y in ys],
+                label=None,
+                **line_kwargs)
+
         elif plot_type == "scatter":
-            ax.scatter(xs, ys)
+            ax.scatter(xs, [y_offset + y for y in ys])
 
 
 def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
@@ -1320,10 +1330,10 @@ def set_limits(args, ax, xlims):
 
     # TODO: HACK:
 
-    scale = 1e3
-    ticks = ticker.FuncFormatter(
-        lambda x, pos: '{0:g}'.format(x*scale))
-    ax.yaxis.set_major_formatter(ticks)
+    # scale = 1e3
+    # ticks = ticker.FuncFormatter(
+    #     lambda x, pos: '{0:g}'.format(x*scale))
+    # ax.yaxis.set_major_formatter(ticks)
 
     if args.molecule is not None:
         if args.molecule == "pyrazine":

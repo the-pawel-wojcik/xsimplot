@@ -49,7 +49,8 @@ the config
 file = "/home/data/reference_peaks.csv" # absolute paths work the best
 plot_type = "stems" # chose "scatter" for experimental band shapes
 energy_units = "cm-1" # defaults to "eV"
-rescale_intensities = 10.0 # defaults to 1.0, i.e., intensities remain unchanged
+rescale_intensities = -5.0 # defaults to 1.0, i.e., intensities remain unchanged
+y_offset = 1.0 # defaults to 0.0, begining of the reference peaks
 ```
 
 #### Add reference peaks directly to the spectrum
