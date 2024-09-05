@@ -122,6 +122,12 @@ def parse_command_line():
                         type=float,
                         default=None)
 
+    parser.add_argument("-i", "--all_intensities_even",
+                        help="Use this switch to set all intenties to the"
+                        " same value.",
+                        type=float,
+                        default=None)
+
     parser.add_argument("-k", "--horizontal_minor_ticks_2nd_axis",
                         help="Specify the interval at which the minor ticks"
                         " should appear.",
@@ -1425,6 +1431,28 @@ def collect_spectra(args, config):
               file=sys.stderr)
 
     return spectra, basis, lanczos, spectrum_format
+
+
+def set_intensities(args, config, spectra):
+    """
+    Sometimes only the position of peaks is meaningful. Check if the switch
+    'all_intensities_even' is set to any value is apply it.
+    """
+    even_intensites = None
+    if 'all_intensities_even' in config:
+        even_intensites = config['all_intensities_even']
+
+    if args.all_intensities_even is not None:
+        even_intensites = args.all_intensities_even
+
+    if even_intensites is None:
+        return spectra
+
+    for spectrum in spectra:
+        for peak in spectrum:
+            peak['Relative intensity'] = even_intensites
+
+    return spectra
 
 
 def main():
