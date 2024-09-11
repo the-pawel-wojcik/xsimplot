@@ -1466,6 +1466,7 @@ def main():
     spectra = apply_shift(spectra, shift_eV)
     fig, ax = get_fig_and_ax(args, config)
 
+    spectra = set_intensities(args, config, spectra)
     envelope_max_y = add_envelope(ax, args, config, spectra, xlims, gamma)
     max_peak = add_peaks(ax, args, config, spectra, xlims)
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
