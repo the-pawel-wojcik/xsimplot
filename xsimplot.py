@@ -31,6 +31,7 @@ PYRAZINE_ABSORPTION_ORIGIN_CM = 30876
 supported_units = {
     "eV": lambda x: x,
     "cm-1": lambda x: x * CM2eV,
+    "nm": lambda x: 1239.84198 / x,
 }
 
 
@@ -617,7 +618,7 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
         text = r'$\gamma = ' + f'{gamma:.3f}$\n'
 
     if shift_eV is not None:
-        text += f'$s = {shift_eV:.2f}$'
+        text += f'$s = {shift_eV:.2f}$ eV'
 
     verbose = False
     if 'verbose' in config:
