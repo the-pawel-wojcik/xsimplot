@@ -129,6 +129,11 @@ def parse_command_line():
                         type=float,
                         default=None)
 
+    parser.add_argument("-I", "--rescale_intensities",
+                        help="Multiply all intensiteis by the value.",
+                        type=float,
+                        default=None)
+
     parser.add_argument("-k", "--horizontal_minor_ticks_2nd_axis",
                         help="Specify the interval at which the minor ticks"
                         " should appear.",
@@ -1335,13 +1340,6 @@ def set_limits(args, ax, xlims):
 
     ax.set_xlim([xlims[0], xlims[1]])
 
-    # TODO: HACK:
-
-    # scale = 1e3
-    # ticks = ticker.FuncFormatter(
-    #     lambda x, pos: '{0:g}'.format(x*scale))
-    # ax.yaxis.set_major_formatter(ticks)
-
     if args.molecule is not None:
         if args.molecule == "pyrazine":
             # ax.set_ylim([0.0, 0.044])
@@ -1456,6 +1454,24 @@ def set_intensities(args, config, spectra):
     return spectra
 
 
+def rescale_intensities(args, config, spectra):
+    intensites_factor = None
+    if 'rescale_intensities' in config:
+        intensites_factor = config['rescale_intensities']
+
+    if args.rescale_intensities is not None:
+        intensites_factor = args.rescale_intensities
+
+    if intensites_factor is None:
+        return spectra
+
+    for spectrum in spectra:
+        for peak in spectrum:
+            peak['Relative intensity'] *= intensites_factor
+
+    return spectra
+
+
 def main():
     args = parse_command_line()
     config = get_config(args)
@@ -1468,6 +1484,7 @@ def main():
     fig, ax = get_fig_and_ax(args, config)
 
     spectra = set_intensities(args, config, spectra)
+    spectra = rescale_intensities(args, config, spectra)
     envelope_max_y = add_envelope(ax, args, config, spectra, xlims, gamma)
     max_peak = add_peaks(ax, args, config, spectra, xlims)
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
