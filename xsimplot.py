@@ -208,8 +208,8 @@ def parse_command_line():
 
     parser.add_argument("-y", "--show_yaxis_ticks",
                         help="Show ticks on the yaxis.",
-                        default=False,
-                        action='store_true')
+                        default=None,
+                        type=bool)
 
     args = parser.parse_args()
     return args
@@ -1389,14 +1389,22 @@ def get_config(args):
     return config
 
 
-def customize_yaxsim_ticks(args, config, ax):
-    show_yaxis_ticks = False
+def customize_yaxis(args, config, ax: mpl.axes.Axes):
+    show_yaxis_ticks = None
     if 'show_yaxis_ticks' in config:
         show_yaxis_ticks = config['show_yaxis_ticks']
-    if args.show_yaxis_ticks is True:
-        show_yaxis_ticks = True
+    if args.show_yaxis_ticks is not None:
+        show_yaxis_ticks = args.show_yaxis_ticks
+
+    if show_yaxis_ticks is None:
+        show_yaxis_ticks = False  # set the default
+
     if show_yaxis_ticks is False:
         ax.get_yaxis().set_ticks([])
+
+    if 'ylims' in config:
+        ylims = config['ylims']
+        ax.set_ylim(bottom=ylims['bottom'], top=ylims['top'])
 
 
 def collect_spectra(args, config):
@@ -1509,7 +1517,7 @@ def main():
     add_minor_ticks(args, config, ax)
     add_second_axis(args, config, ax, origin)
 
-    customize_yaxsim_ticks(args, config, ax)
+    customize_yaxis(args, config, ax)
 
     fig.tight_layout()
 

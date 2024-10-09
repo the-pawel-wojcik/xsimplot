@@ -18,6 +18,18 @@ command line value is used.
 
 ### Options available only from the config file
 
+Two tables that set the x and y limits.
+```toml
+[xlims]
+left=1.0
+right=3.0
+
+[ylims]
+bottom=1.0
+top=3.0
+```
+if you put the table in the config you must set both values in the table.
+
 
 #### Add reference peaks from a file
 Reference peaks (e.g. for an experiment vs theory showcase) can be added from
