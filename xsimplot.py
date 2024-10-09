@@ -101,7 +101,10 @@ def parse_command_line():
 
     parser.add_argument("-p", "--position_annotation",
                         help="Place the annotation at",
-                        choices=["top left", "center", "top right"],
+                        choices=[
+                            "top left", "top center", "top right",
+                            "bottom left", "bottom center", "bottom right"
+                        ],
                         default=None,
                         type=str
                         )
@@ -578,7 +581,6 @@ def add_peaks(ax, args, config, xsim_outputs, xlims):
 def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
 
     info_kwargs = {
-        'verticalalignment': 'top',
         'fontsize': FONTSIZE,
         'color': 'k',
         'transform': ax.transAxes,
@@ -587,14 +589,38 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
     # the options translated to settings
     horizontalalignment = {
         "top left": "left",
-        "center": "center",
+        "top center": "center",
         "top right": "right",
+        "bottom left": "left",
+        "bottom center": "center",
+        "bottom right": "right",
+    }
+
+    verticalalignment = {
+        "top left": "top",
+        "top center": "top",
+        "top right": "top",
+        "bottom left": "bottom",
+        "bottom center": "center",
+        "bottom right": "bottom",
     }
 
     x_position = {
         "top left": 0.01,
-        "center": 0.5,
+        "top center": 0.5,
         "top right": 0.99,
+        "bottom left": 0.01,
+        "bottom center": 0.5,
+        "bottom right": 0.99,
+    }
+
+    y_position = {
+        "top left": 0.99,
+        "top center": 0.99,
+        "top right": 0.99,
+        "bottom left": 0.01,
+        "bottom center": 0.01,
+        "bottom right": 0.01,
     }
 
     position = "top left"  # default
@@ -606,10 +632,11 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
                   f"Allowed values: {", ".join(x_position.keys())}",
                   file=sys.stderr)
             sys.exit(1)
-    if args.position_annotation is not None:  # comman line can overwrite
+    if args.position_annotation is not None:  # command line can overwrite
         position = args.position_annotation
 
     info_kwargs['horizontalalignment'] = horizontalalignment[position]
+    info_kwargs['verticalalignment'] = verticalalignment[position]
 
     text = ""
 
@@ -654,7 +681,7 @@ def add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma):
             print("Warning: The annotation texts needs to start with either"
                   " 'a' or 'o', see help for details.", file=sys.stderr)
 
-    ax.text(x_position[position], 0.99, text, **info_kwargs)
+    ax.text(x_position[position], y_position[position], text, **info_kwargs)
 
 
 def add_caoph_lines(ax, top_feature):
