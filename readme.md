@@ -59,10 +59,10 @@ the config
 ```toml
 [[reference_spectrum]]
 file = "/home/data/reference_peaks.csv" # absolute paths work the best
-plot_type = "stems" # chose "scatter" for experimental band shapes
+plot_type = "stems"  # chose from "stems", "plot", and "scatter"
 energy_units = "cm-1" # defaults to "eV"
 rescale_intensities = -5.0 # defaults to 1.0, i.e., intensities remain unchanged
-y_offset = 1.0 # defaults to 0.0, begining of the reference peaks
+y_offset = 1.0 # defaults to 0.0, beginning of the reference peaks
 ```
 
 #### Add reference peaks directly to the spectrum

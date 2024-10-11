@@ -1253,10 +1253,10 @@ def collect_reference_spectra_config(spectrum):
               "Using the default.",
               file=sys.stderr)
 
-    if plot_type not in ['scatter', 'stems']:
+    if plot_type not in ['scatter', 'stems', 'plot']:
         print("Error: The only supported values of 'plot_type' in the "
               "'reference_spectrum' part of the config file are 'scatter'"
-              " and 'stems'", file=sys.stderr)
+              ", 'stems', and 'plot' ", file=sys.stderr)
         sys.exit(1)
 
     if 'file' not in spectrum:
@@ -1341,6 +1341,9 @@ def add_reference_spectra(ax, args, config):
 
         elif plot_type == "scatter":
             ax.scatter(xs, [y_offset + y for y in ys])
+
+        elif plot_type == "plot":
+            ax.plot(xs, [y_offset + y for y in ys])
 
 
 def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
