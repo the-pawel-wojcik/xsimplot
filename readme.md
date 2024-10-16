@@ -64,6 +64,7 @@ energy_units = "cm-1" # defaults to "eV"
 rescale_intensities = -5.0 # defaults to 1.0, i.e., intensities remain unchanged
 y_offset = 1.0 # defaults to 0.0, beginning of the reference peaks
 match_origin = 2.71  # in the same units as `energy_units`
+line_kwargs.color = 'tab:orange'  # Specify any kwargs for the plot function
 ```
 
 #### Add reference peaks directly to the spectrum

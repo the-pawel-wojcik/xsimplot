@@ -1251,6 +1251,11 @@ def collect_reference_spectra_config(spectrum):
               f" {match_origin} {unit}.",
               file=sys.stderr)
 
+    line_kwargs = {}
+    if 'line_kwargs' in spectrum:
+        for key, value in spectrum['line_kwargs'].items():
+            line_kwargs[key] = value
+
     plot_type = 'stems'
     if 'plot_type' in spectrum:
         plot_type = spectrum['plot_type']
@@ -1278,7 +1283,8 @@ def collect_reference_spectra_config(spectrum):
     file_name = spectrum['file']
     file_name = os.path.expanduser(file_name)
 
-    return unit, rescale_factor, plot_type, y_offset, file_name, match_origin
+    return unit, rescale_factor, plot_type, y_offset, file_name, \
+        match_origin, line_kwargs
 
 
 def plot_reference_spectra_assignments(
@@ -1307,7 +1313,8 @@ def add_reference_spectra(ax, args, config):
         return
 
     for spectrum in config['reference_spectrum']:
-        unit, rescale_factor, plot_type, y_offset, file_name, match_origin = \
+        unit, rescale_factor, plot_type, y_offset, file_name, match_origin, \
+            ref_line_kwargs = \
             collect_reference_spectra_config(spectrum)
 
         spectrum_data = []
@@ -1318,12 +1325,8 @@ def add_reference_spectra(ax, args, config):
             for row in reader:
                 spectrum_data += [row]
 
-        line_kwargs = {
-            'color': 'k',
-            'linestyles': 'solid',
-            # 'linewidths': 1,
-            # 'alpha': 0.8
-        }
+        line_kwargs = {}
+        line_kwargs.update(ref_line_kwargs)
 
         if match_origin is not None:
             shift = float(spectrum_data[0]['energy']) - match_origin
