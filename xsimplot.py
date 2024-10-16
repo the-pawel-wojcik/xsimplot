@@ -1244,6 +1244,13 @@ def collect_reference_spectra_config(spectrum):
               "Using intensities from the csv file.",
               file=sys.stderr)
 
+    match_origin = None
+    if 'match_origin' in spectrum:
+        match_origin = float(spectrum['match_origin'])
+        print("Info: Matching the reference spectrum against the origin at"
+              f" {match_origin} {unit}.",
+              file=sys.stderr)
+
     plot_type = 'stems'
     if 'plot_type' in spectrum:
         plot_type = spectrum['plot_type']
@@ -1271,7 +1278,7 @@ def collect_reference_spectra_config(spectrum):
     file_name = spectrum['file']
     file_name = os.path.expanduser(file_name)
 
-    return unit, rescale_factor, plot_type, y_offset, file_name
+    return unit, rescale_factor, plot_type, y_offset, file_name, match_origin
 
 
 def plot_reference_spectra_assignments(
@@ -1300,7 +1307,7 @@ def add_reference_spectra(ax, args, config):
         return
 
     for spectrum in config['reference_spectrum']:
-        unit, rescale_factor, plot_type, y_offset, file_name = \
+        unit, rescale_factor, plot_type, y_offset, file_name, match_origin = \
             collect_reference_spectra_config(spectrum)
 
         spectrum_data = []
@@ -1317,6 +1324,11 @@ def add_reference_spectra(ax, args, config):
             # 'linewidths': 1,
             # 'alpha': 0.8
         }
+
+        if match_origin is not None:
+            shift = float(spectrum_data[0]['energy']) - match_origin
+            for peak in spectrum_data:
+                peak['energy'] = float(peak['energy']) - shift
 
         if assignments_are_available is True:
             plot_reference_spectra_assignments(
