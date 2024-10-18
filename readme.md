@@ -87,6 +87,7 @@ tables in TOML](https://toml.io/en/v1.0.0#array-of-tables).
 
 [numpy](https://numpy.org/)
 
+[adjustText](https://github.com/Phlya/adjustText)
 
 ### Standard python libraries:
 [argparse](https://docs.python.org/3/library/argparse.html)

@@ -5,12 +5,14 @@ import csv
 import os
 import sys
 import math as m
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.ticker import MultipleLocator
 import matplotlib.ticker as ticker
 import numpy as np
 import tomllib
+from adjustText import adjust_text
 
 
 DISREGARD_INTENSITY = 1e-20
@@ -1155,7 +1157,8 @@ def get_fig_and_ax(args, config):
 
     # The default figure size is 12cm x 12 cm. Smaller should be better.
     FIGSIZE = 12 * CM2INCH * scale_factor
-    fig, ax = plt.subplots(figsize=(FIGSIZE * aspect_ratio, FIGSIZE))
+    fig, ax = plt.subplots(figsize=(FIGSIZE * aspect_ratio, FIGSIZE),
+                           layout='constrained')
     return fig, ax
 
 
@@ -1288,27 +1291,36 @@ def collect_reference_spectra_config(spectrum):
 
 
 def plot_reference_spectra_assignments(
-        ax, spectrum_data, unit, rescale_factor, y_offset
-):
-    convert_to_eV = supported_units[unit]
+        ax, spectrum_data, unit, rescale_factor, y_offset, xlims
+) -> list[mpl.text.Text]:
+    texts = list()
     text_kwargs = {
         'ha': 'center',
     }
     for peak in spectrum_data:
+        if peak['energy'] > xlims[1] or peak['energy'] < xlims[0]:
+            continue
         if peak['assignment'] is None:
             continue
-        x_eV = convert_to_eV(float(peak['energy']))
-        amplitude = float(peak['intensity']) * rescale_factor
+        x_eV = peak['energy']
+        amplitude = peak['intensity']
         if amplitude < 0.0:
             text_kwargs['va'] = 'top'
         else:
             text_kwargs['va'] = 'bottom'
 
         text = peak['assignment']
-        ax.text(x_eV, y_offset + amplitude, text, **text_kwargs)
+        text_obj = ax.text(x_eV, y_offset + amplitude, text, **text_kwargs)
+        texts.append(text_obj)
+
+    return texts
 
 
-def add_reference_spectra(ax, args, config):
+def add_reference_spectra(
+        ax: mpl.axes.Axes, args, config, xlims
+    ) -> tuple[
+        list[mpl.text.Text], mpl.collections.LineCollection
+]:
     if "reference_spectrum" not in config:
         return
 
@@ -1328,37 +1340,44 @@ def add_reference_spectra(ax, args, config):
         line_kwargs = {}
         line_kwargs.update(ref_line_kwargs)
 
+        shift = 0.0
         if match_origin is not None:
             shift = float(spectrum_data[0]['energy']) - match_origin
-            for peak in spectrum_data:
-                peak['energy'] = float(peak['energy']) - shift
 
-        if assignments_are_available is True:
-            plot_reference_spectra_assignments(
-                ax, spectrum_data, unit, rescale_factor, y_offset
-            )
+        unit_converter = supported_units[unit]
+        for peak in spectrum_data:
+            peak['energy'] = float(peak['energy']) - shift
+            peak['energy'] = unit_converter(peak['energy'])
+            peak['intensity'] = float(peak['intensity'])
+            peak['intensity'] *= rescale_factor
 
         spectrum_list = [
-            [
-                supported_units[unit](float(row['energy'])),
-                float(row['intensity']) * rescale_factor,
-            ] for row in spectrum_data
+            [row['energy'], row['intensity'],] for row in spectrum_data
         ]
         # transpose
         xs, ys = [list(a) for a in zip(*spectrum_list)]
         if plot_type == 'stems':
-            ax.vlines(
+            peak_lines: mpl.collections.LineCollection = ax.vlines(
                 xs,
                 [y_offset for _ in ys],
                 [y + y_offset for y in ys],
                 label=None,
-                **line_kwargs)
+                **line_kwargs
+            )
 
         elif plot_type == "scatter":
             ax.scatter(xs, [y_offset + y for y in ys])
 
         elif plot_type == "plot":
             ax.plot(xs, [y_offset + y for y in ys])
+
+        if assignments_are_available is True:
+            texts = plot_reference_spectra_assignments(
+                ax, spectrum_data, unit, rescale_factor, y_offset, xlims
+            )
+        else:
+            texts = []
+    return (texts, peak_lines)
 
 
 def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
@@ -1546,7 +1565,7 @@ def main():
     if spectrum_format == "ezFCF":
         add_ezFCF_assignments(ax, args, config, spectra, top_feature)
     add_assignments(ax, args, config, top_feature)
-    add_reference_spectra(ax, args, config)
+    texts, peak_lines = add_reference_spectra(ax, args, config, xlims)
     # if args.molecule == "ozone_zeke":
     #     ci_ozone_cation_cm = 104024.87948
     #     ci_ozone_cation_eV = ci_ozone_cation_cm * CM2eV
@@ -1564,7 +1583,25 @@ def main():
 
     customize_yaxis(args, config, ax)
 
-    fig.tight_layout()
+    # objects = mpl.collections.PathCollection(peak_lines.get_paths())
+    adjust_text(texts, ax=ax,
+                # objects=objects,
+                avoid_self=True,
+                only_move={
+                    "text": "y-",
+                    "static": "y-",
+                    "explode": "y-",
+                    "pull": "y-"
+                },
+                min_arrow_len=20,
+                arrowprops=dict(arrowstyle='->',
+                                color='gray',
+                                alpha=0.5,
+                                lw=1,
+                                mutation_scale=5,
+                                linestyle='-'
+                                )
+                )
 
     filename = prepare_filename(args, config)
     dont_save = False
