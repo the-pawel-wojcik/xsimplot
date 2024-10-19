@@ -161,10 +161,13 @@ def parse_command_line():
 
     parser.add_argument("-n", "--spectrum_format",
                         help="Chose the format of the spectrum file. 'xsim'"
-                        "requires additional parser.",
+                        "requires additional parser. 'ref' marks that the"
+                        " input follows the 'reference_spectrum' format"
+                        " described in the reamde file. 'ref' requires that"
+                        " peak locations are in eV.",
                         default=None,  # defaults to fort.20 see code
                         type=str,
-                        choices=["xsim", "fort.20", "ezFCF"])
+                        choices=["xsim", "fort.20", "ezFCF", 'ref'])
 
     parser.add_argument("-r", "--scale_factor",
                         help="Scale the figure size with the factor.",
@@ -345,6 +348,50 @@ def get_xsim_outputs(args):
                   file=sys.stderr)
 
     return xsim_outputs, basis, lanczos
+
+
+def get_ref_spectrum(args):
+    """
+    spectrum as csv
+    energy,intensity,assignmnet
+    assignment is optional
+    """
+    spectra = []
+    for file_idx, out_file in enumerate(args.output_files):
+
+        spectrum_data = []
+        assignments_are_available = False
+        with open(out_file, 'r', newline='') as spectrum_file:
+            reader = csv.DictReader(spectrum_file)
+            assignments_are_available = 'assignment' in reader.fieldnames
+            if assignments_are_available:
+                for row in reader:
+                    spectrum_data += [
+                        {
+                            'Energy (eV)': float(row['energy']),
+                            'Relative intensity': float(row['intensity']),
+                            'assignment': row['assignment'],
+                        }
+                    ]
+            else:
+                for row in reader:
+                    spectrum_data += [
+                        {
+                            'Energy (eV)': float(row['energy']),
+                            'Relative intensity': float(row['intensity']),
+                        }
+                    ]
+
+        # Add other data that xsim offers
+        origin_eV = spectrum_data[0]['Energy (eV)']
+        for peak in spectrum_data:
+            energy_eV = peak['Energy (eV)']
+            peak['Energy (cm-1)'] = energy_eV * eV2CM
+            peak['Offset (cm-1)'] = (energy_eV - origin_eV) * eV2CM
+
+        spectra += [spectrum_data]
+
+    return spectra
 
 
 def get_ezFCF_spectrum(args):
@@ -1400,6 +1447,31 @@ def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
             ax.text(energy_eV, amplitude, text, **text_kwargs)
 
 
+def add_ref_assignments(ax, args, config, spectra, top_feature, xlims):
+
+    # TODO: adapt for units other than eV
+
+    text_kwargs = {
+        'ha': 'center',
+        'va': 'bottom',
+    }
+
+    for peaks in spectra:
+        for peak in peaks:
+            energy_eV = peak['Energy (eV)']
+            amplitude = peak['Relative intensity']
+            assignment = peak['assignment']
+
+            if energy_eV > xlims[1] or energy_eV < xlims[0]:
+                continue
+
+            # Disregard small features
+            if amplitude < 0.025 * top_feature:
+                continue
+
+            ax.text(energy_eV, amplitude, assignment, **text_kwargs)
+
+
 def set_limits(args, ax, xlims):
 
     ax.set_xlim([xlims[0], xlims[1]])
@@ -1475,7 +1547,7 @@ def collect_spectra(args, config):
     # The format can be specified in the config file
     spectrum_format = None
     if 'spectrum_format' in config:
-        if config['spectrum_format'] not in ['xsim', 'fort.20', 'ezFCF']:
+        if config['spectrum_format'] not in ['xsim', 'fort.20', 'ezFCF', 'ref']:
             print("Error: the config file contains invalid spectrum format\n"
                   f"\tspectrum_format = {config['spectrum_format']}",
                   file=sys.stderr)
@@ -1497,6 +1569,10 @@ def collect_spectra(args, config):
         basis = None
         lanczos = None
         spectra = get_ezFCF_spectrum(args)
+    elif spectrum_format == "ref":
+        basis = None
+        lanczos = None
+        spectra = get_ref_spectrum(args)
     else:
         print(f"Error: Unknown spectrum format {spectrum_format}",
               file=sys.stderr)
@@ -1564,6 +1640,8 @@ def main():
     top_feature = max(envelope_max_y, max_peak)
     if spectrum_format == "ezFCF":
         add_ezFCF_assignments(ax, args, config, spectra, top_feature)
+    elif spectrum_format == "ref":
+        add_ref_assignments(ax, args, config, spectra, top_feature, xlims)
     add_assignments(ax, args, config, top_feature)
     texts, peak_lines = add_reference_spectra(ax, args, config, xlims)
     # if args.molecule == "ozone_zeke":
