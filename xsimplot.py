@@ -1366,11 +1366,12 @@ def plot_reference_spectra_assignments(
 def add_reference_spectra(
         ax: mpl.axes.Axes, args, config, xlims
     ) -> tuple[
-        list[mpl.text.Text], mpl.collections.LineCollection
+        list[mpl.text.Text], mpl.collections.LineCollection, float
 ]:
     if "reference_spectrum" not in config:
         return
 
+    texts = []
     for spectrum in config['reference_spectrum']:
         unit, rescale_factor, plot_type, y_offset, file_name, match_origin, \
             ref_line_kwargs = \
@@ -1419,12 +1420,11 @@ def add_reference_spectra(
             ax.plot(xs, [y_offset + y for y in ys])
 
         if assignments_are_available is True:
-            texts = plot_reference_spectra_assignments(
+            loc_texts = plot_reference_spectra_assignments(
                 ax, spectrum_data, unit, rescale_factor, y_offset, xlims
             )
-        else:
-            texts = []
-    return (texts, peak_lines)
+            texts += loc_texts
+    return (texts, peak_lines, rescale_factor)
 
 
 def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
@@ -1643,7 +1643,8 @@ def main():
     elif spectrum_format == "ref":
         add_ref_assignments(ax, args, config, spectra, top_feature, xlims)
     add_assignments(ax, args, config, top_feature)
-    texts, peak_lines = add_reference_spectra(ax, args, config, xlims)
+    texts, peak_lines, rescale_factor =\
+        add_reference_spectra(ax, args, config, xlims)
     # if args.molecule == "ozone_zeke":
     #     ci_ozone_cation_cm = 104024.87948
     #     ci_ozone_cation_eV = ci_ozone_cation_cm * CM2eV
@@ -1662,15 +1663,25 @@ def main():
     customize_yaxis(args, config, ax)
 
     # objects = mpl.collections.PathCollection(peak_lines.get_paths())
+    if rescale_factor > 0:
+        only_move = {
+            "text": "y+",
+            "static": "y+",
+            "explode": "y+",
+            "pull": "y+",
+        }
+    else:
+        only_move = {
+                "text": "y-",
+                "static": "y-",
+                "explode": "y-",
+                "pull": "y-"
+        }
+
     adjust_text(texts, ax=ax,
                 # objects=objects,
                 avoid_self=True,
-                only_move={
-                    "text": "y-",
-                    "static": "y-",
-                    "explode": "y-",
-                    "pull": "y-"
-                },
+                only_move=only_move,
                 min_arrow_len=20,
                 arrowprops=dict(arrowstyle='->',
                                 color='gray',
