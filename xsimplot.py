@@ -197,8 +197,10 @@ def parse_command_line():
 
     shift = parser.add_mutually_exclusive_group()
 
-    help = "Shift simulated spectrum to align the first peak at <match_origin> eV."
+    help = "Shift simulated spectrum to align the first peak at <match_origin>"
+    help += " eV."
     shift.add_argument("-o", "--match_origin",
+                       type=float,
                        default=None,
                        help=help)
 
@@ -415,8 +417,8 @@ def get_ezFCF_spectrum(args):
         origin_eV = ezFCF_spectrum[0]['Energy (eV)']
         for peak in ezFCF_spectrum:
             energy_eV = peak['Energy (eV)']
-            peak['Energy (cm-1'] = energy_eV * eV2CM
-            peak['Offset (cm-1'] = (energy_eV - origin_eV) * eV2CM
+            peak['Energy (cm-1)'] = energy_eV * eV2CM
+            peak['Offset (cm-1)'] = (energy_eV - origin_eV) * eV2CM
 
         spectra += [ezFCF_spectrum]
 
@@ -621,7 +623,11 @@ def add_peaks(ax, args, config, xsim_outputs, xlims):
         else:
             stem_xsim_output(my_peaks, ax, COLORS[file_idx])
 
-        max_peak = max(my_peaks, key=lambda x: x['Relative intensity'])
+        if len(my_peaks) == 0:
+            max_peak = {'Relative intensity': 0.0}
+        else:
+            max_peak = max(my_peaks, key=lambda x: x['Relative intensity'])
+
         peaks_maxima.append(max_peak['Relative intensity'])
 
     return max(peaks_maxima)
