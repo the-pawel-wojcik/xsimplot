@@ -16,6 +16,7 @@ from adjustText import adjust_text
 
 
 DISREGARD_INTENSITY = 1e-20
+ANNOTATION_DISREGARD_THRESH = 0.0001
 
 COLORS = [color for color in mcolors.TABLEAU_COLORS.keys()]
 FONTSIZE = 12
@@ -1433,27 +1434,45 @@ def add_reference_spectra(
     return (texts, peak_lines, rescale_factor)
 
 
-def add_ezFCF_assignments(ax, args, config, spectra, top_feature):
+def add_ezFCF_assignments(
+        ax: mpl.axes.Axes,
+        args: argparse.Namespace,
+        config: dict,
+        spectra: list[list[dict]],
+        top_feature: float
+) -> list[mpl.text.Text]:
+
+    text_kwargs = {
+        'ha': 'center',
+        'va': 'bottom',
+    }
+
+    texts = list()
     for peaks in spectra:
         for peak in peaks:
             energy_eV = peak['Energy (eV)']
             amplitude = peak['Relative intensity']
             assignment = peak['ezFCF assignment']
-
-            text_kwargs = {
-                'ha': 'center',
-                'va': 'bottom',
-            }
             # Disregard small features
-            if amplitude < 0.025 * top_feature:
+            if amplitude < ANNOTATION_DISREGARD_THRESH * top_feature:
                 continue
 
             text = ezFCF_label_to_spectroscopic_label(assignment)
 
-            ax.text(energy_eV, amplitude, text, **text_kwargs)
+            text_obj = ax.text(energy_eV, amplitude, text, **text_kwargs)
+            texts.append(text_obj)
+
+    return texts
 
 
-def add_ref_assignments(ax, args, config, spectra, top_feature, xlims):
+def add_ref_assignments(
+        ax: mpl.axes.Axes,
+        args: argparse.Namespace,
+        config: dict,
+        spectra: list[list[dict]],
+        top_feature: float,
+        xlims: list[float],
+) -> list[mpl.text.Text]:
 
     # TODO: adapt for units other than eV
 
@@ -1462,6 +1481,7 @@ def add_ref_assignments(ax, args, config, spectra, top_feature, xlims):
         'va': 'bottom',
     }
 
+    texts = list()
     for peaks in spectra:
         for peak in peaks:
             energy_eV = peak['Energy (eV)']
@@ -1472,10 +1492,13 @@ def add_ref_assignments(ax, args, config, spectra, top_feature, xlims):
                 continue
 
             # Disregard small features
-            if amplitude < 0.025 * top_feature:
+            if amplitude < ANNOTATION_DISREGARD_THRESH * top_feature:
                 continue
 
-            ax.text(energy_eV, amplitude, assignment, **text_kwargs)
+            new_text = ax.text(energy_eV, amplitude, assignment, **text_kwargs)
+            texts.append(new_text)
+
+    return texts
 
 
 def set_limits(args, ax, xlims):
@@ -1626,6 +1649,40 @@ def rescale_intensities(args, config, spectra):
     return spectra
 
 
+def decongest_assignments(
+        ax: mpl.axes.Axes,
+        texts: list[mpl.text.Text],
+        go_up: bool = True
+):
+    if go_up is True:
+        only_move = {
+            "text": "y+",
+            "static": "y",
+            "explode": "y+",
+            "pull": "y",
+        }
+    else:
+        only_move = {
+            "text": "y-",
+            "static": "y",
+            "explode": "y-",
+            "pull": "y"
+        }
+
+    adjust_text(texts, ax=ax,
+                # objects=objects,
+                avoid_self=True,
+                only_move=only_move,
+                min_arrow_len=20,
+                arrowprops=dict(arrowstyle='->',
+                                color='lightgray',
+                                lw=1,
+                                mutation_scale=5,
+                                linestyle='-'
+                                )
+                )
+
+
 def main():
     args = parse_command_line()
     config = get_config(args)
@@ -1643,11 +1700,15 @@ def main():
     max_peak = add_peaks(ax, args, config, spectra, xlims)
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
 
+    spectrum_texts = None
     top_feature = max(envelope_max_y, max_peak)
     if spectrum_format == "ezFCF":
-        add_ezFCF_assignments(ax, args, config, spectra, top_feature)
+        spectrum_texts = add_ezFCF_assignments(
+            ax, args, config, spectra, top_feature)
     elif spectrum_format == "ref":
-        add_ref_assignments(ax, args, config, spectra, top_feature, xlims)
+        spectrum_texts = add_ref_assignments(
+            ax, args, config, spectra, top_feature, xlims
+        )
     add_assignments(ax, args, config, top_feature)
     texts, peak_lines, rescale_factor =\
         add_reference_spectra(ax, args, config, xlims)
@@ -1668,35 +1729,9 @@ def main():
 
     customize_yaxis(args, config, ax)
 
-    # objects = mpl.collections.PathCollection(peak_lines.get_paths())
-    if rescale_factor > 0:
-        only_move = {
-            "text": "y+",
-            "static": "y+",
-            "explode": "y+",
-            "pull": "y+",
-        }
-    else:
-        only_move = {
-                "text": "y-",
-                "static": "y-",
-                "explode": "y-",
-                "pull": "y-"
-        }
-
-    adjust_text(texts, ax=ax,
-                # objects=objects,
-                avoid_self=True,
-                only_move=only_move,
-                min_arrow_len=20,
-                arrowprops=dict(arrowstyle='->',
-                                color='gray',
-                                alpha=0.5,
-                                lw=1,
-                                mutation_scale=5,
-                                linestyle='-'
-                                )
-                )
+    decongest_assignments(ax, texts, rescale_factor > 0)
+    if spectrum_texts is not None:
+        decongest_assignments(ax, spectrum_texts)
 
     filename = prepare_filename(args, config)
     dont_save = False
