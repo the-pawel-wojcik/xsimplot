@@ -1376,7 +1376,7 @@ def add_reference_spectra(
         list[mpl.text.Text], mpl.collections.LineCollection, float
 ]:
     if "reference_spectrum" not in config:
-        return
+        return None, None, None
 
     texts = []
     for spectrum in config['reference_spectrum']:
@@ -1729,7 +1729,9 @@ def main():
 
     customize_yaxis(args, config, ax)
 
-    decongest_assignments(ax, texts, rescale_factor > 0)
+    if texts is not None and rescale_factor is not None:
+        decongest_assignments(ax, texts, rescale_factor > 0)
+
     if spectrum_texts is not None:
         decongest_assignments(ax, spectrum_texts)
 
