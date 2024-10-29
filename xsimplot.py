@@ -83,7 +83,7 @@ def ezFCF_label_to_spectroscopic_label(assignment: str,
     return out_str
 
 
-def parse_command_line():
+def parse_command_line() -> argparse.Namespace:
     # Parse the command line arguments.
 
     parser = argparse.ArgumentParser(description="Plot vibronic spectrum.")
@@ -164,8 +164,8 @@ def parse_command_line():
                         help="Chose the format of the spectrum file. 'xsim'"
                         "requires additional parser. 'ref' marks that the"
                         " input follows the 'reference_spectrum' format"
-                        " described in the reamde file. 'ref' requires that"
-                        " peak locations are in eV.",
+                        " described in the reamde file. If 'ref' uses peak "
+                        " location not in 'eV', see '-u'.",
                         default=None,  # defaults to fort.20 see code
                         type=str,
                         choices=["xsim", "fort.20", "ezFCF", 'ref'])
@@ -179,6 +179,14 @@ def parse_command_line():
                         help="Do NOT show stick spectrum.",
                         default=False,
                         action="store_true")
+
+    parser.add_argument("-u", "--energy_units",
+                        help="For use with '-n ref';"
+                        " allows to change energy units of the spectrum"
+                        " (defaults to eV).",
+                        default=None,  # defaults to eV
+                        choices=supported_units,
+                        )
 
     parser.add_argument("-v", "--verbose",
                         help="Annotate with # of Lanczos it and basis size.",
@@ -353,12 +361,30 @@ def get_xsim_outputs(args):
     return xsim_outputs, basis, lanczos
 
 
-def get_ref_spectrum(args):
+def get_ref_spectrum(
+        args: argparse.Namespace,
+        config: dict
+) -> list[list[dict]]:
     """
     spectrum as csv
     energy,intensity,assignmnet
     assignment is optional
     """
+    energy_units = None
+    if 'energy_units' in config:
+        if config['energy_units'] not in supported_units:
+            print("Error: the config file requests unsupported energy units:\n"
+                  f"\tenergy_units = {config['energy_units']}",
+                  file=sys.stderr)
+            sys.exit(1)
+        energy_units = config['energy_units']
+    if args.energy_units is not None:
+        energy_units = args.energy_units
+    if energy_units is None:
+        energy_units = 'eV'
+
+    convert_to_eV = supported_units[energy_units]
+
     spectra = []
     for file_idx, out_file in enumerate(args.output_files):
 
@@ -369,18 +395,22 @@ def get_ref_spectrum(args):
             assignments_are_available = 'assignment' in reader.fieldnames
             if assignments_are_available:
                 for row in reader:
+                    energy_input = float(row['energy'])
+                    energy_eV = convert_to_eV(energy_input)
                     spectrum_data += [
                         {
-                            'Energy (eV)': float(row['energy']),
+                            'Energy (eV)': energy_eV,
                             'Relative intensity': float(row['intensity']),
                             'assignment': row['assignment'],
                         }
                     ]
             else:
                 for row in reader:
+                    energy_input = float(row['energy'])
+                    energy_eV = convert_to_eV(energy_input)
                     spectrum_data += [
                         {
-                            'Energy (eV)': float(row['energy']),
+                            'Energy (eV)': energy_eV,
                             'Relative intensity': float(row['intensity']),
                         }
                     ]
@@ -1601,7 +1631,7 @@ def collect_spectra(args, config):
     elif spectrum_format == "ref":
         basis = None
         lanczos = None
-        spectra = get_ref_spectrum(args)
+        spectra = get_ref_spectrum(args, config)
     else:
         print(f"Error: Unknown spectrum format {spectrum_format}",
               file=sys.stderr)
