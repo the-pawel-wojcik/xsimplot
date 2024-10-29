@@ -1469,7 +1469,8 @@ def add_ezFCF_assignments(
         args: argparse.Namespace,
         config: dict,
         spectra: list[list[dict]],
-        top_feature: float
+        top_feature: float,
+        xlims: list[float],
 ) -> list[mpl.text.Text]:
 
     text_kwargs = {
@@ -1483,6 +1484,11 @@ def add_ezFCF_assignments(
             energy_eV = peak['Energy (eV)']
             amplitude = peak['Relative intensity']
             assignment = peak['ezFCF assignment']
+
+            # Do not draw annotations for peaks which are not displayed
+            if energy_eV > xlims[1] or energy_eV < xlims[0]:
+                continue
+
             # Disregard small features
             if amplitude < ANNOTATION_DISREGARD_THRESH * top_feature:
                 continue
@@ -1734,7 +1740,8 @@ def main():
     top_feature = max(envelope_max_y, max_peak)
     if spectrum_format == "ezFCF":
         spectrum_texts = add_ezFCF_assignments(
-            ax, args, config, spectra, top_feature)
+            ax, args, config, spectra, top_feature, xlims
+        )
     elif spectrum_format == "ref":
         spectrum_texts = add_ref_assignments(
             ax, args, config, spectra, top_feature, xlims
