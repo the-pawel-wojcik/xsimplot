@@ -1510,8 +1510,6 @@ def add_ref_assignments(
         xlims: list[float],
 ) -> list[mpl.text.Text]:
 
-    # TODO: adapt for units other than eV
-
     text_kwargs = {
         'ha': 'center',
         'va': 'bottom',
@@ -1520,9 +1518,12 @@ def add_ref_assignments(
     texts = list()
     for peaks in spectra:
         for peak in peaks:
+            if 'assignment' not in peak:
+                continue
+
+            assignment = peak['assignment']
             energy_eV = peak['Energy (eV)']
             amplitude = peak['Relative intensity']
-            assignment = peak['assignment']
 
             if energy_eV > xlims[1] or energy_eV < xlims[0]:
                 continue
