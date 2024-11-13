@@ -100,6 +100,34 @@ class Spectrum:
                 return
         self.intentities_are_positive = last_sign
 
+    def get_origin_energy(self):
+        self.spectral_points.sort(key=lambda x: x['energy'])
+        return self.spectral_points[0]['energy']
+
+    def get_max_intensity(self):
+        """Returns max of abs intensity."""
+        max_peak = max(self.spectral_points, key=lambda x: abs(x['intensity']))
+        return max_peak['intensity']
+
+    def __add__(self, other):
+        if isinstance(other, float):
+            for peak in self.spectral_points:
+                peak['energy'] += other
+        else:
+            raise NotImplementedError
+        return self
+
+    def __sub__(self, other):
+        return self + (-other)
+
+    def __mul__(self, other):
+        if isinstance(other, float):
+            for peak in self.spectral_points:
+                peak['intensity'] *= other
+        else:
+            raise NotImplementedError
+        return self
+
 
 def ezFCF_label_helper(
         state: str,
@@ -325,24 +353,25 @@ def turn_spectrum_to_xs_and_ys(
 def lorenz_intensity(
         x: float,
         gamma: float,
-        xsim_output: float,
+        spectrum: Spectrum,
 ) -> float:
     out = 0.0
-    for spectral_point in xsim_output:
-        energy_eV = spectral_point['Energy (eV)']
-        intensity = spectral_point['Relative intensity']
+    for spectral_point in spectrum.spectral_points:
+        energy_eV = spectral_point['energy']
+        intensity = spectral_point['intensity']
         out += intensity * height_one_lorenzian(x, energy_eV, gamma)
     return out
 
 
-def stem_xsim_output(
-        xsim_output: list,
+def stem_spectral_peaks(
+        peaks: list[dict],
         ax: mpl.axes.Axes,
         color: str = 'k',
+        **line_kwargs
 ):
-    for spectral_point in xsim_output:
-        energy_eV = spectral_point['Energy (eV)']
-        intensity = spectral_point['Relative intensity']
+    for spectral_point in peaks:
+        energy_eV = spectral_point['energy']
+        intensity = spectral_point['intensity']
         ax.vlines(x=energy_eV, ymin=0.0, ymax=intensity, colors=color)
 
 
@@ -431,6 +460,36 @@ def get_xsim_outputs(
 
 
 def get_ref_spectrum(
+        filename: str,
+        convert_to_eV
+) -> Spectrum:
+    ref_spectrum = Spectrum()
+    assignments_are_available = False
+    with open(filename, 'r', newline='') as spectrum_file:
+        reader = csv.DictReader(spectrum_file)
+        assignments_are_available = 'assignment' in reader.fieldnames
+        if assignments_are_available:
+            for row in reader:
+                energy_input = float(row['energy'])
+                energy_eV = convert_to_eV(energy_input)
+                ref_spectrum.add_sepctral_point(
+                    energy=energy_eV,
+                    intensity=float(row['intensity']),
+                    assignment=row['assignment'],
+                )
+        else:
+            for row in reader:
+                energy_input = float(row['energy'])
+                energy_eV = convert_to_eV(energy_input)
+                ref_spectrum.add_sepctral_point(
+                    energy=energy_eV,
+                    intensity=float(row['intensity']),
+                )
+
+    return ref_spectrum
+
+
+def get_ref_spectrum_from_args_and_config(
         args: argparse.Namespace,
         config: dict,
 ) -> list[Spectrum]:
@@ -456,29 +515,7 @@ def get_ref_spectrum(
 
     spectra = []
     for file_idx, out_file in enumerate(args.output_files):
-
-        ref_spectrum = Spectrum()
-        assignments_are_available = False
-        with open(out_file, 'r', newline='') as spectrum_file:
-            reader = csv.DictReader(spectrum_file)
-            assignments_are_available = 'assignment' in reader.fieldnames
-            if assignments_are_available:
-                for row in reader:
-                    energy_input = float(row['energy'])
-                    energy_eV = convert_to_eV(energy_input)
-                    ref_spectrum.add_sepctral_point(
-                        energy=energy_eV,
-                        intensity=float(row['intensity']),
-                        assignment=row['assignment'],
-                    )
-            else:
-                for row in reader:
-                    energy_input = float(row['energy'])
-                    energy_eV = convert_to_eV(energy_input)
-                    ref_spectrum.add_sepctral_point(
-                        energy=energy_eV,
-                        intensity=float(row['intensity']),
-                    )
+        ref_spectrum = get_ref_spectrum(out_file, convert_to_eV)
         spectra += [ref_spectrum]
 
     return spectra
@@ -510,13 +547,12 @@ def get_ezFCF_spectrum(
 
 
 def find_shift(
-        xsim_outputs: list,
+        spectra: list[Spectrum],
         args: argparse.Namespace,
         config: dict,
 ) -> float:
     """
     Find shift (in eV) which will be applied to the spectrum.
-    The shift is
     """
 
     # Command line args are the most important
@@ -524,18 +560,19 @@ def find_shift(
         return args.shift_eV
 
     first_peak_position = None
-
     if 'match_origin' in config:
         first_peak_position = config['match_origin']
-
     if args.match_origin is not None:
         first_peak_position = args.match_origin
 
     if first_peak_position is not None:
         origins = []
-        for xsim_output in xsim_outputs:
-            min_element = min(xsim_output, key=lambda x: x['Energy (eV)'])
-            origins.append(min_element['Energy (eV)'])
+        for spectrum in spectra:
+            min_element = min(
+                spectrum.spectral_points,
+                key=lambda x: x['energy']
+            )
+            origins.append(min_element['energy'])
         origin_eV = min(origins)
         shift_eV = origin_eV - first_peak_position
         return shift_eV
@@ -544,7 +581,7 @@ def find_shift(
 
 
 def find_left_right_gamma(
-        xsim_outputs: list,
+        spectra: list[Spectrum],
         args: argparse.Namespace,
         config: dict,
         how_far: int = 4,
@@ -556,21 +593,20 @@ def find_left_right_gamma(
 
     gamma_eV = find_gamma(args, config)
 
-    # Config file is the second most important resource
     if 'xlims' in config:
         left = config['xlims']['left']
         right = config['xlims']['right']
         return (left, right, gamma_eV)
 
-    # Finally find some default values
+    # Default values
     mins = list()
     maxes = list()
 
-    for xsim_output in xsim_outputs:
-        min_element = min(xsim_output, key=lambda x: x['Energy (eV)'])
-        max_element = max(xsim_output, key=lambda x: x['Energy (eV)'])
-        mins.append(min_element['Energy (eV)'])
-        maxes.append(max_element['Energy (eV)'])
+    for spectrum in spectra:
+        min_element = min(spectrum.spectral_points, key=lambda x: x['energy'])
+        max_element = max(spectrum.spectral_points, key=lambda x: x['energy'])
+        mins.append(min_element['energy'])
+        maxes.append(max_element['energy'])
 
     minimum = min(mins)
     maximum = max(maxes)
@@ -581,24 +617,24 @@ def find_left_right_gamma(
 
 
 def apply_shift(
-        xsim_outputs: list,
+        spectra: list[Spectrum],
         shift_eV: float,
 ) -> list:
     if shift_eV is None:
-        return xsim_outputs
+        return spectra
 
-    for output in xsim_outputs:
-        for peak in output:
-            peak['Energy (eV)'] -= shift_eV
+    for spectrum in spectra:
+        for peak in spectrum.spectral_points:
+            peak['energy'] -= shift_eV
 
-    return xsim_outputs
+    return spectra
 
 
 def add_envelope(
         ax: mpl.axes.Axes,
         args: argparse.Namespace,
         config: dict,
-        xsim_outputs: list,
+        spectra: list[Spectrum],
         xlims: list[float],
         gamma: float,
 ) -> float:
@@ -618,14 +654,15 @@ def add_envelope(
     xs = np.linspace(xlims[0], xlims[1], npoints)
     accumutated_ys = np.zeros_like(xs)
 
-    for file_idx, xsim_output in enumerate(xsim_outputs):
-        if file_idx == len(COLORS) or file_idx > len(COLORS):
+    for spectrum_idx, spectrum in enumerate(spectra):
+        # TODO: remove COLORS here
+        if spectrum_idx == len(COLORS) or spectrum_idx > len(COLORS):
             print("Too many colors already.", file=sys.stderr)
             sys.exit(1)
 
-        state_spectrum = [lorenz_intensity(x, gamma, xsim_output) for x in xs]
+        state_spectrum = [lorenz_intensity(x, gamma, spectrum) for x in xs]
         state_spectrum = np.array(state_spectrum)
-        color = COLORS[file_idx]
+        color = COLORS[spectrum_idx]
         if envelope_type == "stack":
             ax.fill_between(xs, accumutated_ys + state_spectrum,
                             accumutated_ys, color=color, alpha=0.2)
@@ -649,7 +686,7 @@ def add_peaks(
         ax: mpl.axes.Axes,
         args: argparse.Namespace,
         config: dict,
-        xsim_outputs: list,
+        spectra: list[Spectrum],
         xlims: list[float],
 ) -> float:
     """ Returns the height of the tallest added peak. """
@@ -663,23 +700,27 @@ def add_peaks(
         return 0.0
 
     peaks_maxima = []
-    for file_idx, xsim_output in enumerate(xsim_outputs):
-        if file_idx == len(COLORS) or file_idx > len(COLORS):
+    for spectrum_idx, spectrum in enumerate(spectra):
+        # TODO: remove COLORS in here
+        if spectrum_idx == len(COLORS) or spectrum_idx > len(COLORS):
             print("Too many colors already.", file=sys.stder)
             sys.exit(1)
 
         my_peaks = [
-            peak for peak in xsim_output if
-            peak['Energy (eV)'] >= xlims[0] and peak['Energy (eV)'] <= xlims[1]
+            peak for peak in spectrum.spectral_points if
+            peak['energy'] >= xlims[0] and peak['energy'] <= xlims[1]
         ]
-        stem_xsim_output(my_peaks, ax, COLORS[file_idx])
+        line_kwargs = {
+            'color':  COLORS[spectrum_idx],
+        }
+        stem_spectral_peaks(my_peaks, ax, **line_kwargs)
 
         if len(my_peaks) == 0:
-            max_peak = {'Relative intensity': 0.0}
+            max_peak = {'intensity': 0.0}
         else:
-            max_peak = max(my_peaks, key=lambda x: x['Relative intensity'])
+            max_peak = max(my_peaks, key=lambda x: x['intensity'])
 
-        peaks_maxima.append(max_peak['Relative intensity'])
+        peaks_maxima.append(max_peak['intensity'])
 
     return max(peaks_maxima)
 
@@ -822,11 +863,10 @@ def find_gamma(args: argparse.Namespace, config: dict) -> float:
     return gamma
 
 
-def get_origin(xsim_outputs: list) -> float:
+def get_origin(spectra: list[Spectrum]) -> float:
     origin = None
-    for xsim_output in xsim_outputs:
-        min_element = min(xsim_output, key=lambda x: x['Energy (eV)'])
-        loc_origin = min_element['Energy (eV)']
+    for spectrum in spectra:
+        loc_origin = spectrum.get_origin_energy()
         if origin is None:
             origin = loc_origin
         elif origin > loc_origin:
@@ -946,12 +986,12 @@ def get_fig_and_ax(
 
     # Aspect ratio = width/height
     # width = height * ar
-    aspect_ratio = 1.0
+    aspect_ratio = 16.0/9.0
     if 'aspect_ratio' in config:
         aspect_ratio = config['aspect_ratio']
 
     # The default figure size is 12cm x 12 cm. Smaller should be better.
-    FIGSIZE = 12 * CM2INCH * scale_factor
+    FIGSIZE = 8 * CM2INCH * scale_factor
     fig, ax = plt.subplots(figsize=(FIGSIZE * aspect_ratio, FIGSIZE),
                            layout='constrained')
     return fig, ax
@@ -989,54 +1029,23 @@ def collect_reference_peaks_from_config(
     return spectrum
 
 
-def add_assignments_from_config(
-        ax: mpl.axes.Axes,
-        args: argparse.Namespace,
-        config: dict,
-        top_feature: float,
-):
-    """ Plots additional references peaks that can be listed in the
-    config.toml file"""
-    if "reference_peaks" not in config:
-        return
-
-    print("Info: Adding reference peaks from the config file.",
-          file=sys.stderr)
-
-    # TODO: assure that reference_peaks are propertly formatted.
-    peaks = config['reference_peaks']
-    for peak in peaks:
-        energy = peak['energy']
-        energy_unit = peak['energy_unit']
-        amplitude = peak['amplitude']
-        assignment = peak['assignment']
-
-        if energy_unit not in supported_units:
-            print(f"Error: energy units other than {supported_units.keys()}"
-                  " are not supported in 'reference_peaks' array.",
-                  file=sys.stderr)
-            sys.exit(1)
-        x_eV = supported_units[energy_unit](energy)
-
-        text_kwargs = {
-            'ha': 'center',
-        }
-        if amplitude < 0.0:
-            text_kwargs['va'] = 'top'
-        else:
-            text_kwargs['va'] = 'bottom'
-
-        line_kwargs = {
-            'color': 'k',
-            'linestyles': 'solid',
-        }
-        ax.text(x_eV, amplitude, assignment, **text_kwargs)
-        ax.vlines([x_eV], 0.0, [amplitude], **line_kwargs)
-
-
-def collect_reference_spectra_config(
+def collect_ref_spectrum_config(
         spectrum: dict,
-):
+) -> dict:
+    """
+    Returns
+    ```python
+    ref_spectrum_config = {
+        'unit': str,  # checked
+        'rescale_factor': float,
+        'plot_type': str,  # checked
+        'y_offset': float,
+        'file_name': str,
+        'match_origin': None or float,
+        'line_kwargs': dict,
+    }
+    ```
+    """
     unit = 'eV'
     if 'energy_units' in spectrum:
         unit = spectrum['energy_units']
@@ -1053,7 +1062,7 @@ def collect_reference_spectra_config(
 
     rescale_factor = 1.0
     if 'rescale_intensities' in spectrum:
-        rescale_factor = float(spectrum['rescale_intensities'])
+        rescale_factor = spectrum['rescale_intensities']
     else:
         print("Info: rescale_intensities not specified in the "
               "reference_spectrum section of the config file."
@@ -1099,106 +1108,17 @@ def collect_reference_spectra_config(
     file_name = spectrum['file']
     file_name = os.path.expanduser(file_name)
 
-    return unit, rescale_factor, plot_type, y_offset, file_name, \
-        match_origin, line_kwargs
-
-
-def plot_reference_spectra_assignments(
-        ax: mpl.axes.Axes,
-        spectrum_data: list,
-        y_offset: float,
-        xlims: list[float],
-) -> list[mpl.text.Text]:
-    texts = list()
-    text_kwargs = {
-        'ha': 'center',
+    ref_spectrum_config = {
+        'unit': unit,
+        'rescale_factor': rescale_factor,
+        'plot_type': plot_type,
+        'y_offset': y_offset,
+        'file_name': file_name,
+        'match_origin': match_origin,
+        'line_kwargs': line_kwargs,
     }
-    for peak in spectrum_data:
-        if peak['energy'] > xlims[1] or peak['energy'] < xlims[0]:
-            continue
-        if peak['assignment'] is None:
-            continue
-        x_eV = peak['energy']
-        amplitude = peak['intensity']
-        if amplitude < 0.0:
-            text_kwargs['va'] = 'top'
-        else:
-            text_kwargs['va'] = 'bottom'
 
-        text = peak['assignment']
-        text_obj = ax.text(x_eV, y_offset + amplitude, text, **text_kwargs)
-        texts.append(text_obj)
-
-    return texts
-
-
-def add_reference_spectra(
-        ax: mpl.axes.Axes,
-        args: argparse.Namespace,
-        config: dict,
-        xlims: list[float],
-) -> tuple[
-        list[mpl.text.Text],
-        mpl.collections.LineCollection,
-        float
-]:
-    if "reference_spectrum" not in config:
-        return None, None, None
-
-    texts = []
-    for spectrum in config['reference_spectrum']:
-        unit, rescale_factor, plot_type, y_offset, file_name, match_origin, \
-            ref_line_kwargs = \
-            collect_reference_spectra_config(spectrum)
-
-        spectrum_data = []
-        assignments_are_available = False
-        with open(file_name, 'r', newline='') as spectrum_file:
-            reader = csv.DictReader(spectrum_file)
-            assignments_are_available = 'assignment' in reader.fieldnames
-            for row in reader:
-                spectrum_data += [row]
-
-        line_kwargs = {}
-        line_kwargs.update(ref_line_kwargs)
-
-        shift = 0.0
-        if match_origin is not None:
-            shift = float(spectrum_data[0]['energy']) - match_origin
-
-        unit_converter = supported_units[unit]
-        for peak in spectrum_data:
-            peak['energy'] = float(peak['energy']) - shift
-            peak['energy'] = unit_converter(peak['energy'])
-            peak['intensity'] = float(peak['intensity'])
-            peak['intensity'] *= rescale_factor
-
-        spectrum_list = [
-            [row['energy'], row['intensity'],] for row in spectrum_data
-        ]
-        # transpose
-        xs, ys = [list(a) for a in zip(*spectrum_list)]
-        if plot_type == 'stems':
-            peak_lines: mpl.collections.LineCollection = ax.vlines(
-                xs,
-                [y_offset for _ in ys],
-                [y + y_offset for y in ys],
-                label=None,
-                **line_kwargs
-            )
-
-        elif plot_type == "scatter":
-            ax.scatter(xs, [y_offset + y for y in ys])
-
-        elif plot_type == "plot":
-            ax.plot(xs, [y_offset + y for y in ys])
-
-        if assignments_are_available is True:
-            loc_texts = plot_reference_spectra_assignments(
-                ax, spectrum_data, y_offset, xlims
-            )
-            texts += loc_texts
-    return (texts, peak_lines, rescale_factor)
+    return ref_spectrum_config
 
 
 def add_spectrum_assignments(
@@ -1206,6 +1126,7 @@ def add_spectrum_assignments(
         spectra: list[Spectrum],
         top_feature: float,
         xlims: list[float],
+        y_offset: float = 0.0,
 ) -> list[mpl.text.Text]:
 
     text_kwargs = {
@@ -1243,7 +1164,12 @@ def add_spectrum_assignments(
             if amplitude < ANNOTATION_DISREGARD_THRESH * top_feature:
                 continue
 
-            text_obj = ax.text(energy_eV, amplitude, assignment, **text_kwargs)
+            text_obj = ax.text(
+                energy_eV,
+                amplitude + y_offset,
+                assignment,
+                **text_kwargs
+            )
             texts.append(text_obj)
 
     return texts
@@ -1323,7 +1249,7 @@ def collect_spectra(
     elif spectrum_format == "ref":
         basis = None
         lanczos = None
-        spectra = get_ref_spectrum(args, config)
+        spectra = get_ref_spectrum_from_args_and_config(args, config)
     else:
         print(f"Error: Unknown spectrum format {spectrum_format}",
               file=sys.stderr)
@@ -1334,7 +1260,7 @@ def collect_spectra(
 def set_intensities(
         args: argparse.Namespace,
         config: dict,
-        spectra: list,
+        spectra: list[Spectrum],
 ):
     """
     Sometimes only the position of peaks is meaningful. Check if the switch
@@ -1351,8 +1277,8 @@ def set_intensities(
         return spectra
 
     for spectrum in spectra:
-        for peak in spectrum:
-            peak['Relative intensity'] = even_intensites
+        for peak in spectrum.spectral_points:
+            peak['intensity'] = even_intensites
 
     return spectra
 
@@ -1360,7 +1286,7 @@ def set_intensities(
 def rescale_intensities(
         args: argparse.Namespace,
         config: dict,
-        spectra: list,
+        spectra: list[Spectrum],
 ) -> list:
     intensites_factor = None
     if 'rescale_intensities' in config:
@@ -1373,8 +1299,8 @@ def rescale_intensities(
         return spectra
 
     for spectrum in spectra:
-        for peak in spectrum:
-            peak['Relative intensity'] *= intensites_factor
+        for peak in spectrum.spectral_points:
+            peak['intensity'] *= intensites_factor
 
     return spectra
 
@@ -1432,18 +1358,80 @@ def main():
 
     envelope_max_y = add_envelope(ax, args, config, spectra, xlims, gamma)
     max_peak = add_peaks(ax, args, config, spectra, xlims)
-    add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
-
     top_feature = max(envelope_max_y, max_peak)
-
     spectrum_texts = add_spectrum_assignments(ax, spectra, top_feature, xlims)
 
-    reference_peaks = collect_reference_peaks_from_config(args, config)
-    add_spectrum_assignments(ax, [reference_peaks], top_feature, xlims)
+    add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
 
-    add_assignments_from_config(ax, args, config, top_feature)
-    texts, peak_lines, rescale_factor =\
-        add_reference_spectra(ax, args, config, xlims)
+    # config file can specify extra peaks
+    reference_peaks = collect_reference_peaks_from_config(args, config)
+    if reference_peaks is not None:
+        line_kwargs = {
+            'color': 'k',
+            'linestyles': 'solid',
+        }
+        stem_spectral_peaks(reference_peaks.spectral_points, ax, **line_kwargs)
+        add_spectrum_assignments(ax, [reference_peaks], top_feature, xlims)
+
+    # config file can specify extra "reference" spectra
+    texts_ref = list()
+    rescale_factor = None
+    if "reference_spectra" in config:
+        for ref_spec_config_toml in config['reference_spectra']:
+            ref_spec_conf = collect_ref_spectrum_config(ref_spec_config_toml)
+
+            unit = ref_spec_conf['unit']
+            energy_to_eV = supported_units[unit]
+            file_name = ref_spec_conf['file_name']
+            ref_spec: Spectrum = get_ref_spectrum(file_name, energy_to_eV)
+
+            shift = 0.0
+            if ref_spec_conf['match_origin'] is not None:
+                match_origin_eV = energy_to_eV(ref_spec_conf['match_origin'])
+                shift = ref_spec.get_origin_energy() - match_origin_eV
+            ref_spec -= shift
+
+            rescale_factor = ref_spec_conf['rescale_factor']
+            ref_spec *= rescale_factor
+
+            spectrum_list = [
+                [row['energy'], row['intensity'],]
+                for row in ref_spec.spectral_points
+            ]
+            xs, ys = [list(a) for a in zip(*spectrum_list)]
+
+            line_kwargs = {}
+            line_kwargs.update(ref_spec_conf['line_kwargs'])
+
+            # TODO: make it a single function call and use it with the
+            # previous spectra
+
+            plot_type = ref_spec_conf['plot_type']
+            y_offset = ref_spec_conf['y_offset']
+
+            if plot_type == 'stems':
+                peak_lines: mpl.collections.LineCollection = ax.vlines(
+                    xs,
+                    [y_offset for _ in ys],
+                    [y + y_offset for y in ys],
+                    label=None,
+                    **line_kwargs
+                )
+
+            elif plot_type == "scatter":
+                ax.scatter(xs, [y_offset + y for y in ys])
+
+            elif plot_type == "plot":
+                ax.plot(xs, [y_offset + y for y in ys])
+
+            ref_spec.update_assignments_flag()
+            texts_ref += add_spectrum_assignments(
+                ax,
+                [ref_spec],
+                top_feature=0.0,
+                xlims=xlims,
+                y_offset=y_offset,
+            )
 
     set_limits(args, ax, xlims)
 
@@ -1453,9 +1441,9 @@ def main():
 
     customize_yaxis(args, config, ax)
 
-    if texts is not None and rescale_factor is not None:
-        decongest_assignments(ax, texts, rescale_factor > 0)
-
+    # TODO: figure out the rescale_factor
+    if rescale_factor is not None:
+        decongest_assignments(ax, texts_ref, rescale_factor > 0)
     decongest_assignments(ax, spectrum_texts)
 
     filename = prepare_filename(args, config)
