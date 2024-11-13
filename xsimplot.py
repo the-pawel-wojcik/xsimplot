@@ -31,6 +31,76 @@ supported_units = {
 }
 
 
+class Spectrum:
+    """Representation of the spectrum as a list of `spectral_points`. Each
+    spectral point is a dictionary of
+    `{"energy": float, "intenity": float, "annotation": str}`
+    where "annotation" is optional. Look at the value of
+    `assignments_available` to tell if the annotations are available. The
+    "energy" is saved in eV.
+    """
+
+    def __init__(self):
+        self.spectral_points = list()
+        self.energy_unit: str = "eV"
+        self.assignments_available: str = None
+        self.intentities_are_positive: bool = True
+
+    def add_sepctral_point(
+            self,
+            energy: float,
+            intensity: float,
+            assignment: str = None,
+    ):
+        if assignment is None:
+            self.spectral_points.append({
+                'energy': energy,
+                'intensity': intensity,
+            })
+        else:
+            self.spectral_points.append({
+                'energy': energy,
+                'intensity': intensity,
+                'assignment': assignment,
+            })
+
+    def update_assignments_flag(self):
+        """ Check if spectral points have the `assignment` value set. The flag
+        values are None, "all" or "some". """
+        number_annotations = 0
+        for point in self.spectral_points:
+            if 'assignment' in point:
+                number_annotations += 1
+        if number_annotations == 0:
+            self.assignments_available = None
+        elif number_annotations == len(self.spectral_points):
+            self.assignments_available = "all"
+        else:
+            self.assignments_available = "some"
+
+    def update_intensities_sign_flag(self):
+        """ Check if spectral points show positive intensities.
+        Check only for peaks with assignment available. """
+        self.update_intensities_sign_flag()
+        if self.assignments_available is None:
+            self.intentities_are_positive = True
+            return
+
+        last_sign = None
+        for point in self.spectral_points:
+            if 'assignment' not in point:
+                continue
+            if last_sign is None:
+                last_sign = point['intensity'] > 0
+                continue
+            if (point['intensity'] > 0) != last_sign:
+                print("Warning: some intensities are positieve and some are"
+                      " negative. Treating all as positive.", file=sys.stderr)
+                self.intentities_are_positive = True
+                return
+        self.intentities_are_positive = last_sign
+
+
 def ezFCF_label_helper(
         state: str,
 ) -> str:
@@ -278,7 +348,7 @@ def stem_xsim_output(
 
 def get_xsim_outputs_from_fort20(
         args: argparse.Namespace,
-) -> tuple[list, int]:
+) -> tuple[list[Spectrum], int]:
     xsim_outputs = []
     lanczos = None
     for file_idx, fort20_file in enumerate(args.output_files):
@@ -294,8 +364,7 @@ def get_xsim_outputs_from_fort20(
                   f" file #{file_idx} differs from the previous files.",
                   file=sys.stderr)
 
-        xsim_output = []
-        first_peak_cm = float(fort20[1].split()[0]) * eV2CM
+        xsim_spectrum = Spectrum()
         for peak in fort20[1:]:
             peak = peak.split()
             try:
@@ -311,23 +380,21 @@ def get_xsim_outputs_from_fort20(
                 sys.exit(1)
             if intensity < DISREGARD_INTENSITY:
                 continue
-            offset = float(peak[2])
-            data = {
-                'Energy (eV)': float(peak[0]),
-                'Energy (cm-1)': first_peak_cm + offset,
-                'Offset (cm-1)': offset,
-                'Relative intensity': float(peak[1]),
-            }
-            xsim_output += [data]
 
-        xsim_outputs += [xsim_output]
+            energy_eV = float(peak[0])
+            xsim_spectrum.add_sepctral_point(
+                energy=energy_eV,
+                intensity=intensity,
+            )
+
+        xsim_outputs += [xsim_spectrum]
 
     return xsim_outputs, lanczos
 
 
 def get_xsim_outputs(
         args: argparse.Namespace,
-) -> tuple[list, str, int]:
+) -> tuple[list[Spectrum], str, int]:
 
     from cfour_parser.xsim import parse_xsim_output
     xsim_outputs = []
@@ -337,8 +404,14 @@ def get_xsim_outputs(
         with open(out_file) as f:
             xsim_data = parse_xsim_output(f)
 
-        xsim_output = xsim_data['spectrum_data']
-        xsim_outputs += [xsim_output]
+        xsim_spectrum = Spectrum()
+        for data_point in xsim_data['spectrum_data']:
+            xsim_spectrum.add_sepctral_point(
+                energy=data_point['Energy (eV)'],
+                intensity=data_point['Relative intensity'],
+            )
+
+        xsim_outputs.append(xsim_spectrum)
 
         loc_basis = xsim_data['basis']
         if basis is None:
@@ -360,7 +433,7 @@ def get_xsim_outputs(
 def get_ref_spectrum(
         args: argparse.Namespace,
         config: dict,
-) -> list[list[dict]]:
+) -> list[Spectrum]:
     """
     spectrum as csv
     energy,intensity,assignmnet
@@ -384,7 +457,7 @@ def get_ref_spectrum(
     spectra = []
     for file_idx, out_file in enumerate(args.output_files):
 
-        spectrum_data = []
+        ref_spectrum = Spectrum()
         assignments_are_available = False
         with open(out_file, 'r', newline='') as spectrum_file:
             reader = csv.DictReader(spectrum_file)
@@ -393,61 +466,45 @@ def get_ref_spectrum(
                 for row in reader:
                     energy_input = float(row['energy'])
                     energy_eV = convert_to_eV(energy_input)
-                    spectrum_data += [
-                        {
-                            'Energy (eV)': energy_eV,
-                            'Relative intensity': float(row['intensity']),
-                            'assignment': row['assignment'],
-                        }
-                    ]
+                    ref_spectrum.add_sepctral_point(
+                        energy=energy_eV,
+                        intensity=float(row['intensity']),
+                        assignment=row['assignment'],
+                    )
             else:
                 for row in reader:
                     energy_input = float(row['energy'])
                     energy_eV = convert_to_eV(energy_input)
-                    spectrum_data += [
-                        {
-                            'Energy (eV)': energy_eV,
-                            'Relative intensity': float(row['intensity']),
-                        }
-                    ]
-
-        # Add other data that xsim offers
-        origin_eV = spectrum_data[0]['Energy (eV)']
-        for peak in spectrum_data:
-            energy_eV = peak['Energy (eV)']
-            peak['Energy (cm-1)'] = energy_eV * eV2CM
-            peak['Offset (cm-1)'] = (energy_eV - origin_eV) * eV2CM
-
-        spectra += [spectrum_data]
+                    ref_spectrum.add_sepctral_point(
+                        energy=energy_eV,
+                        intensity=float(row['intensity']),
+                    )
+        spectra += [ref_spectrum]
 
     return spectra
 
 
-def get_ezFCF_spectrum(args: argparse.Namespace):
+def get_ezFCF_spectrum(
+        args: argparse.Namespace
+) -> list[Spectrum]:
     spectra = []
     for file_idx, out_file in enumerate(args.output_files):
         with open(out_file) as f:
             lines = f.readlines()
 
-        ezFCF_spectrum = []
+        ezFCF_spectrum = Spectrum()
         for line in lines:
             splitline = line.split()
-            data = {
-                'Energy (eV)': float(splitline[0]),
-                'Relative intensity': float(splitline[1]),
-                'FCF': float(splitline[2]),
-                'ezFCF assignment': splitline[4],
-            }
-            ezFCF_spectrum += [data]
-
-        # Add other data that xsim offers
-        origin_eV = ezFCF_spectrum[0]['Energy (eV)']
-        for peak in ezFCF_spectrum:
-            energy_eV = peak['Energy (eV)']
-            peak['Energy (cm-1)'] = energy_eV * eV2CM
-            peak['Offset (cm-1)'] = (energy_eV - origin_eV) * eV2CM
-
-        spectra += [ezFCF_spectrum]
+            energy_eV = float(splitline[0])
+            intensity = float(splitline[1])
+            ezfcf_assignment = splitline[4]
+            assignment = ezFCF_label_to_spectroscopic_label(ezfcf_assignment)
+            ezFCF_spectrum.add_sepctral_point(
+                energy=energy_eV,
+                intensity=intensity,
+                assignment=assignment,
+            )
+        spectra.append(ezFCF_spectrum)
 
     return spectra
 
@@ -900,12 +957,46 @@ def get_fig_and_ax(
     return fig, ax
 
 
-def add_assignments(
+def collect_reference_peaks_from_config(
+        args: argparse.Namespace,
+        config: dict,
+) -> Spectrum:
+    if "reference_peaks" not in config:
+        return None
+
+    spectrum = Spectrum()
+    # TODO: assure that reference_peaks are propertly formatted.
+    peaks = config['reference_peaks']
+    for peak in peaks:
+        energy = peak['energy']
+        energy_unit = peak['energy_unit']
+        amplitude = peak['amplitude']
+        assignment = peak['assignment']
+
+        if energy_unit not in supported_units:
+            print(f"Error: energy units other than {supported_units.keys()}"
+                  " are not supported in 'reference_peaks' array.",
+                  file=sys.stderr)
+            sys.exit(1)
+        x_eV = supported_units[energy_unit](energy)
+
+        spectrum.add_sepctral_point(
+            energy=x_eV,
+            intensity=amplitude,
+            assignment=assignment,
+        )
+
+    return spectrum
+
+
+def add_assignments_from_config(
         ax: mpl.axes.Axes,
         args: argparse.Namespace,
         config: dict,
         top_feature: float,
 ):
+    """ Plots additional references peaks that can be listed in the
+    config.toml file"""
     if "reference_peaks" not in config:
         return
 
@@ -1110,11 +1201,9 @@ def add_reference_spectra(
     return (texts, peak_lines, rescale_factor)
 
 
-def add_ezFCF_assignments(
+def add_spectrum_assignments(
         ax: mpl.axes.Axes,
-        args: argparse.Namespace,
-        config: dict,
-        spectra: list[list[dict]],
+        spectra: list[Spectrum],
         top_feature: float,
         xlims: list[float],
 ) -> list[mpl.text.Text]:
@@ -1125,11 +1214,26 @@ def add_ezFCF_assignments(
     }
 
     texts = list()
-    for peaks in spectra:
-        for peak in peaks:
-            energy_eV = peak['Energy (eV)']
-            amplitude = peak['Relative intensity']
-            assignment = peak['ezFCF assignment']
+    for spectrum in spectra:
+        spectrum.update_assignments_flag()
+        if spectrum.assignments_available is None:
+            continue
+
+        spectrum.update_intensities_sign_flag()
+        text_kwargs = {
+            'ha': 'center',
+        }
+        if spectrum.intentities_are_positive is True:
+            text_kwargs['va'] = 'top'
+        else:
+            text_kwargs['va'] = 'bottom'
+
+        for peak in spectrum.spectral_points:
+            if 'assignment' not in peak:
+                continue
+            energy_eV = peak['energy']
+            amplitude = peak['intensity']
+            assignment = peak['assignment']
 
             # Do not draw annotations for peaks which are not displayed
             if energy_eV > xlims[1] or energy_eV < xlims[0]:
@@ -1139,47 +1243,8 @@ def add_ezFCF_assignments(
             if amplitude < ANNOTATION_DISREGARD_THRESH * top_feature:
                 continue
 
-            text = ezFCF_label_to_spectroscopic_label(assignment)
-
-            text_obj = ax.text(energy_eV, amplitude, text, **text_kwargs)
+            text_obj = ax.text(energy_eV, amplitude, assignment, **text_kwargs)
             texts.append(text_obj)
-
-    return texts
-
-
-def add_ref_assignments(
-        ax: mpl.axes.Axes,
-        args: argparse.Namespace,
-        config: dict,
-        spectra: list[list[dict]],
-        top_feature: float,
-        xlims: list[float],
-) -> list[mpl.text.Text]:
-
-    text_kwargs = {
-        'ha': 'center',
-        'va': 'bottom',
-    }
-
-    texts = list()
-    for peaks in spectra:
-        for peak in peaks:
-            if 'assignment' not in peak:
-                continue
-
-            assignment = peak['assignment']
-            energy_eV = peak['Energy (eV)']
-            amplitude = peak['Relative intensity']
-
-            if energy_eV > xlims[1] or energy_eV < xlims[0]:
-                continue
-
-            # Disregard small features
-            if amplitude < ANNOTATION_DISREGARD_THRESH * top_feature:
-                continue
-
-            new_text = ax.text(energy_eV, amplitude, assignment, **text_kwargs)
-            texts.append(new_text)
 
     return texts
 
@@ -1226,8 +1291,9 @@ def customize_yaxis(
 def collect_spectra(
         args: argparse.Namespace,
         config: dict,
-):
-    # The format can be specified in the config file
+) -> tuple[list[Spectrum], str, int]:
+    """Collect the spectrum specified on the command line."""
+
     spectrum_format = None
     if 'spectrum_format' in config:
         if config['spectrum_format'] not in [
@@ -1262,7 +1328,7 @@ def collect_spectra(
         print(f"Error: Unknown spectrum format {spectrum_format}",
               file=sys.stderr)
 
-    return spectra, basis, lanczos, spectrum_format
+    return spectra, basis, lanczos
 
 
 def set_intensities(
@@ -1318,6 +1384,9 @@ def decongest_assignments(
         texts: list[mpl.text.Text],
         go_up: bool = True,
 ):
+    if len(texts) == 0:
+        return
+
     if go_up is True:
         only_move = {
             "text": "y+",
@@ -1351,30 +1420,28 @@ def main():
     args = parse_command_line()
     config = get_config(args)
 
-    spectra, basis, lanczos, spectrum_format = collect_spectra(args, config)
+    spectra, basis, lanczos = collect_spectra(args, config)
 
     shift_eV = find_shift(spectra, args, config)
     *xlims, gamma = find_left_right_gamma(spectra, args, config)
     spectra = apply_shift(spectra, shift_eV)
-    fig, ax = get_fig_and_ax(args, config)
-
     spectra = set_intensities(args, config, spectra)
     spectra = rescale_intensities(args, config, spectra)
+
+    fig, ax = get_fig_and_ax(args, config)
+
     envelope_max_y = add_envelope(ax, args, config, spectra, xlims, gamma)
     max_peak = add_peaks(ax, args, config, spectra, xlims)
     add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
 
-    spectrum_texts = None
     top_feature = max(envelope_max_y, max_peak)
-    if spectrum_format == "ezFCF":
-        spectrum_texts = add_ezFCF_assignments(
-            ax, args, config, spectra, top_feature, xlims
-        )
-    elif spectrum_format == "ref":
-        spectrum_texts = add_ref_assignments(
-            ax, args, config, spectra, top_feature, xlims
-        )
-    add_assignments(ax, args, config, top_feature)
+
+    spectrum_texts = add_spectrum_assignments(ax, spectra, top_feature, xlims)
+
+    reference_peaks = collect_reference_peaks_from_config(args, config)
+    add_spectrum_assignments(ax, [reference_peaks], top_feature, xlims)
+
+    add_assignments_from_config(ax, args, config, top_feature)
     texts, peak_lines, rescale_factor =\
         add_reference_spectra(ax, args, config, xlims)
 
@@ -1389,8 +1456,7 @@ def main():
     if texts is not None and rescale_factor is not None:
         decongest_assignments(ax, texts, rescale_factor > 0)
 
-    if spectrum_texts is not None:
-        decongest_assignments(ax, spectrum_texts)
+    decongest_assignments(ax, spectrum_texts)
 
     filename = prepare_filename(args, config)
     dont_save = False
