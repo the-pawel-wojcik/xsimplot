@@ -30,6 +30,12 @@ supported_units = {
     "nm": lambda x: 1239.84198 / x,
 }
 
+SUPPORTED_ENVELOPES = ['stack', 'overlay', 'sum only']
+ALLOWED_ANNOTATION_POSITIONS = [
+    "top left", "top center", "top right",
+    "bottom left", "bottom center", "bottom right"
+]
+
 
 class Spectrum:
     """Representation of the spectrum as a list of `spectral_points`. Each
@@ -109,6 +115,10 @@ class Spectrum:
         max_peak = max(self.spectral_points, key=lambda x: abs(x['intensity']))
         return max_peak['intensity']
 
+    def set_all_intensities_even(self):
+        for peak in self.spectral_points:
+            peak['intensity'] = 1.0
+
     def __add__(self, other):
         if isinstance(other, float):
             for peak in self.spectral_points:
@@ -127,6 +137,44 @@ class Spectrum:
         else:
             raise NotImplementedError
         return self
+
+
+class SpectrumTweaks:
+    """ Access common spectrum tweaks:
+        ```python
+        shift_eV: float
+        uniform_intensities: bool
+        rescale_factor: float
+        ```
+    """
+
+    def __init__(self):
+        self.shift_eV = 0.0
+        self.uniform_intensities = False
+        self.rescale_factor = None
+
+    def set_shift_eV(self, shift_eV: float):
+        self.shift_eV = shift_eV
+
+    def set_uniform_intensities(self, value: bool):
+        if isinstance(value, bool):
+            self.uniform_intensities = value
+        else:
+            raise ValueError
+
+    def set_rescale_intensities(self, rescale_factor: float):
+        self.rescale_factor = rescale_factor
+
+    def apply_to(self, spectrum: Spectrum):
+        if self.rescale_factor is not None:
+            spectrum *= self.rescale_factor
+
+        if self.uniform_intensities is True:
+            spectrum.set_all_intensities_even()
+
+        if self.shift_eV is not None:
+            for peak in spectrum.spectral_points:
+                peak['energy'] -= self.shift_eV
 
 
 def ezFCF_label_helper(
@@ -196,15 +244,13 @@ def parse_command_line() -> argparse.Namespace:
                         default="",
                         type=str)
 
-    parser.add_argument("-p", "--position_annotation",
-                        help="Place the annotation at",
-                        choices=[
-                            "top left", "top center", "top right",
-                            "bottom left", "bottom center", "bottom right"
-                        ],
-                        default=None,
-                        type=str
-                        )
+    parser.add_argument(
+        "--position_annotation",
+        help="Place the annotation at",
+        choices=ALLOWED_ANNOTATION_POSITIONS,
+        default=None,
+        type=str
+    )
 
     parser.add_argument("-c", "--config",
                         help="Pick config file. "
@@ -215,7 +261,7 @@ def parse_command_line() -> argparse.Namespace:
                         help="Add a Lorenzian envelope to every peak.",
                         type=str,
                         default=None,
-                        choices=['stack', 'overlay', 'sum only'])
+                        choices=SUPPORTED_ENVELOPES)
 
     parser.add_argument("-g", "--gamma",
                         help="Gamma in the Lorenzian:\n" +
@@ -223,11 +269,13 @@ def parse_command_line() -> argparse.Namespace:
                         type=float,
                         default=None)
 
-    parser.add_argument("-i", "--all_intensities_even",
-                        help="Use this switch to set all intenties to the"
-                        " same value.",
-                        type=float,
-                        default=None)
+    parser.add_argument(
+        "--all_intensities_even",
+        help="Use this switch to set all intenties to the same value or"
+        " to override config's value. See also: `--rescale_intensities`.",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+    )
 
     parser.add_argument("-I", "--rescale_intensities",
                         help="Multiply all intensiteis by the value.",
@@ -261,10 +309,12 @@ def parse_command_line() -> argparse.Namespace:
                         default=None,
                         type=float)
 
-    parser.add_argument("-t", "--sticks_off",
-                        help="Do NOT show stick spectrum.",
-                        default=False,
-                        action="store_true")
+    parser.add_argument(
+        "--sticks_off",
+        help="Switch allowing to hide the stick spectrum.",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+    )
 
     parser.add_argument("-u", "--energy_units",
                         help="For use with '-n ref';"
@@ -274,10 +324,12 @@ def parse_command_line() -> argparse.Namespace:
                         choices=supported_units,
                         )
 
-    parser.add_argument("-v", "--verbose",
-                        help="Annotate with # of Lanczos it and basis size.",
-                        default=False,
-                        action="store_true")
+    parser.add_argument(
+        "-v", "--verbose",
+        help="Annotate the plot with # of Lanczos iterations and basis size.",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+    )
 
     save = parser.add_mutually_exclusive_group()
 
@@ -311,10 +363,12 @@ def parse_command_line() -> argparse.Namespace:
                         choices=["cm", "cm offset", "nm"],
                         default=None)
 
-    parser.add_argument("-y", "--show_yaxis_ticks",
-                        help="Show ticks on the yaxis.",
-                        default=None,
-                        type=bool)
+    parser.add_argument(
+        "-y", "--show_yaxis_ticks",
+        help="Switch for displaying ticks on the yaxis.",
+        default=None,
+        action=argparse.BooleanOptionalAction,
+    )
 
     args = parser.parse_args()
     return args
@@ -616,29 +670,10 @@ def find_left_right_gamma(
     return (left, right, gamma_eV)
 
 
-def apply_shift(
-        spectra: list[Spectrum],
-        shift_eV: float,
-) -> list:
-    if shift_eV is None:
-        return spectra
-
-    for spectrum in spectra:
-        for peak in spectrum.spectral_points:
-            peak['energy'] -= shift_eV
-
-    return spectra
-
-
-def add_envelope(
-        ax: mpl.axes.Axes,
+def find_envelope_type(
         args: argparse.Namespace,
         config: dict,
-        spectra: list[Spectrum],
-        xlims: list[float],
-        gamma: float,
-) -> float:
-    """ Returns max value of the envelope. """
+):
 
     envelope_type = None
     if 'envelope' in config:
@@ -647,6 +682,22 @@ def add_envelope(
     if args.envelope is not None:
         envelope_type = args.envelope
 
+    if envelope_type is not None and envelope_type not in SUPPORTED_ENVELOPES:
+        print(f"Error: unsupported envelope type {envelope_type}.\n"
+              f"       prick from {SUPPORTED_ENVELOPES}.", file=sys.stderr)
+        return None
+
+    return envelope_type
+
+
+def add_envelope(
+        ax: mpl.axes.Axes,
+        envelope_type: str,
+        spectra: list[Spectrum],
+        xlims: list[float],
+        gamma: float,
+) -> float:
+    """ Returns max value of the envelope. """
     if envelope_type is None:
         return 0.0
 
@@ -655,7 +706,7 @@ def add_envelope(
     accumutated_ys = np.zeros_like(xs)
 
     for spectrum_idx, spectrum in enumerate(spectra):
-        # TODO: remove COLORS here
+        # TODO: remove COLORS from in here
         if spectrum_idx == len(COLORS) or spectrum_idx > len(COLORS):
             print("Too many colors already.", file=sys.stderr)
             sys.exit(1)
@@ -682,20 +733,27 @@ def add_envelope(
     return fig_max_y
 
 
+def find_if_sticks_are_unwanted(
+    args: argparse.Namespace,
+    config: dict,
+) -> bool:
+    sticks_off = None
+    if 'sticks_off' in config:
+        sticks_off = config['sticks_off']
+    if args.sticks_off is not None:
+        sticks_off = args.sticks_off
+    if sticks_off is None:
+        sticks_off = False
+    return sticks_off
+
+
 def add_peaks(
         ax: mpl.axes.Axes,
-        args: argparse.Namespace,
-        config: dict,
+        sticks_off: bool,
         spectra: list[Spectrum],
         xlims: list[float],
 ) -> float:
     """ Returns the height of the tallest added peak. """
-    sticks_off = False
-    if 'sticks_off' in config:
-        sticks_off = config['sticks_off']
-    if args.sticks_off is True:
-        sticks_off = True
-
     if sticks_off is True:
         return 0.0
 
@@ -725,14 +783,76 @@ def add_peaks(
     return max(peaks_maxima)
 
 
-def add_info_text(
-        ax: mpl.axes.Axes,
+def find_annotation(
+    args: argparse.Namespace,
+    config: dict,
+) -> str:
+    """ User-specified extra annotation to appear on the figure. """
+
+    annotation = ""
+    if 'annotate' in config:
+        annotation = config['annotate']
+    if args.annotate != "":
+        annotation = args.annotate
+    return annotation
+
+
+def find_if_verbose_is_wanted(
         args: argparse.Namespace,
         config: dict,
+) -> bool:
+
+    verbose = None
+    if 'verbose' in config:
+        conf_verbose = config['verbose']
+        if isinstance(conf_verbose, bool):
+            verbose = config['verbose']
+        else:
+            print("Error. Conifg value of verbose is not of bool type.",
+                  file=sys.stderr)
+    if args.verbose is not None:
+        verbose = args.verbose
+
+    if verbose is None:
+        verbose = False
+
+    return verbose
+
+
+def find_annotation_position(
+        args: argparse.Namespace,
+        config: dict,
+) -> dict:
+
+    position = "top left"  # default
+    if 'position_annotation' in config:  # allow to set it from the config
+        conf_position = config['position_annotation']
+        if conf_position not in ALLOWED_ANNOTATION_POSITIONS:
+            print(
+                "Error: Invalid value for 'position_annotation' in config:\n"
+                f"       position_annotation = '{position}'\n"
+                "       Allowed values: "
+                f"{", ".join(ALLOWED_ANNOTATION_POSITIONS)}",
+                file=sys.stderr
+            )
+        else:
+            position = conf_position
+    if args.position_annotation is not None:  # command line can overwrite
+        position = args.position_annotation
+
+    return position
+
+
+def add_info_text(
+        ax: mpl.axes.Axes,
         shift_eV: float,
         basis: str,
         lanczos: int,
         gamma: float,
+        envelope_type: str,
+        annotation: str,
+        verbose: bool,
+        position: dict,
 ):
 
     info_kwargs = {
@@ -740,6 +860,34 @@ def add_info_text(
         'color': 'k',
         'transform': ax.transAxes,
     }
+
+    list_of_texts: list[str] = list()
+
+    if envelope_type is not None:
+        list_of_texts += [r'$\gamma = ' + f'{gamma:.3f}$']
+
+    if shift_eV is not None:
+        list_of_texts += [f'$s = {shift_eV:.2f}$ eV']
+
+    if verbose is True:
+        if basis is not None:
+            list_of_texts += [f'Basis: {basis.split()[0]}']
+        if lanczos is not None:
+            list_of_texts += [f'Lanczos: {lanczos}']
+
+    text = "\n".join(list_of_texts)
+
+    if annotation != "":
+        text_with_newline = "\n".join(annotation[1:].split(r'\n'))
+        # append
+        if annotation[0] == "a":
+            text += "\n" + text_with_newline
+        # overwrite
+        elif annotation[0] == "o":
+            text = text_with_newline
+        else:
+            print("Warning: The annotation texts needs to start with either"
+                  " 'a' or 'o', see help for details.", file=sys.stderr)
 
     x_position = {
         "top left": 0.01,
@@ -759,64 +907,10 @@ def add_info_text(
         "bottom right": 0.01,
     }
 
-    position = "top left"  # default
-    if 'position_annotation' in config:  # allow to set it from the config
-        position = config['position_annotation']
-        if position not in x_position:
-            print("Error: Invalid option present in the config file:\n\t"
-                  f"position_annotation = '{position}'\n\t"
-                  f"Allowed values: {", ".join(x_position.keys())}",
-                  file=sys.stderr)
-            sys.exit(1)
-    if args.position_annotation is not None:  # command line can overwrite
-        position = args.position_annotation
-
-    info_kwargs['horizontalalignment'] = position.split()[1]
-    info_kwargs['verticalalignment'] = position.split()[0]
-
-    text = ""
-
-    envelope_type = None
-    if 'envelope' in config:
-        envelope_type = config['envelope']
-    if args.envelope is not None:
-        envelope_type = args.envelope
-
-    if envelope_type is not None:
-        text = r'$\gamma = ' + f'{gamma:.3f}$\n'
-
-    if shift_eV is not None:
-        text += f'$s = {shift_eV:.2f}$ eV'
-
-    verbose = False
-    if 'verbose' in config:
-        verbose = config['verbose']
-    if args.verbose is True:
-        verbose = True
-
-    if verbose is True:
-        if basis is not None:
-            text += f'\nBasis: {basis.split()[0]}'
-        if lanczos is not None:
-            text += f'\nLanczos: {lanczos}'
-
-    annotation = ""
-    if 'annotate' in config:
-        annotation = config['annotate']
-    if args.annotate != "":
-        annotation = args.annotate
-
-    if annotation != "":
-        text_with_newline = "\n".join(annotation[1:].split(r'\n'))
-        # append
-        if annotation[0] == "a":
-            text += "\n" + text_with_newline
-        # overwrite
-        elif annotation[0] == "o":
-            text = text_with_newline
-        else:
-            print("Warning: The annotation texts needs to start with either"
-                  " 'a' or 'o', see help for details.", file=sys.stderr)
+    info_kwargs.update({
+        'horizontalalignment': position.split()[1],
+        'verticalalignment': position.split()[0],
+    })
 
     ax.text(x_position[position], y_position[position], text, **info_kwargs)
 
@@ -1192,11 +1286,10 @@ def get_config(args: argparse.Namespace) -> dict:
     return config
 
 
-def customize_yaxis(
+def find_if_show_yaxis_ticks(
         args: argparse.Namespace,
         config: dict,
-        ax: mpl.axes.Axes,
-):
+) -> bool:
     show_yaxis_ticks = None
     if 'show_yaxis_ticks' in config:
         show_yaxis_ticks = config['show_yaxis_ticks']
@@ -1205,13 +1298,31 @@ def customize_yaxis(
 
     if show_yaxis_ticks is None:
         show_yaxis_ticks = False  # set the default
+    return show_yaxis_ticks
 
-    if show_yaxis_ticks is False:
-        ax.get_yaxis().set_ticks([])
 
+def find_ylims(
+        config: dict,
+):
+    """Returns a dictionary with
+    ```python
+    {'bottom': float, 'top': float}
+    ```"""
     if 'ylims' in config:
-        ylims = config['ylims']
-        ax.set_ylim(bottom=ylims['bottom'], top=ylims['top'])
+        ylims: dict = config['ylims']
+        if not isinstance(ylims, dict):
+            print("Warning: The conifg 'ylims' is invalid", file=sys.stderr)
+            return None
+        if 'bottom' not in ylims or 'top' not in ylims:
+            print("Warning: The conifg 'ylims' is invalid", file=sys.stderr)
+            return None
+
+        for val in ylims.values():
+            if not isinstance(val, float):
+                print("Warning: The conifg 'ylims' is invalid", file=sys.stderr)
+                return None
+        return ylims
+    return None
 
 
 def collect_spectra(
@@ -1257,14 +1368,13 @@ def collect_spectra(
     return spectra, basis, lanczos
 
 
-def set_intensities(
+def find_if_uniform_intensities(
         args: argparse.Namespace,
         config: dict,
-        spectra: list[Spectrum],
-):
+) -> bool:
     """
-    Sometimes only the position of peaks is meaningful. Check if the switch
-    'all_intensities_even' is set to any value is apply it.
+    Sometimes only the position of peaks is meaningful. The switch
+    'all_intensities_even' allows to set all intensities to the same value.
     """
     even_intensites = None
     if 'all_intensities_even' in config:
@@ -1274,20 +1384,15 @@ def set_intensities(
         even_intensites = args.all_intensities_even
 
     if even_intensites is None:
-        return spectra
+        return False
 
-    for spectrum in spectra:
-        for peak in spectrum.spectral_points:
-            peak['intensity'] = even_intensites
-
-    return spectra
+    return even_intensites
 
 
-def rescale_intensities(
+def find_rescale_factor(
         args: argparse.Namespace,
         config: dict,
-        spectra: list[Spectrum],
-) -> list:
+) -> float:
     intensites_factor = None
     if 'rescale_intensities' in config:
         intensites_factor = config['rescale_intensities']
@@ -1296,13 +1401,9 @@ def rescale_intensities(
         intensites_factor = args.rescale_intensities
 
     if intensites_factor is None:
-        return spectra
+        return None
 
-    for spectrum in spectra:
-        for peak in spectrum.spectral_points:
-            peak['intensity'] *= intensites_factor
-
-    return spectra
+    return intensites_factor
 
 
 def decongest_assignments(
@@ -1348,20 +1449,48 @@ def main():
 
     spectra, basis, lanczos = collect_spectra(args, config)
 
+    spectrum_tweaks = SpectrumTweaks()
     shift_eV = find_shift(spectra, args, config)
-    *xlims, gamma = find_left_right_gamma(spectra, args, config)
-    spectra = apply_shift(spectra, shift_eV)
-    spectra = set_intensities(args, config, spectra)
-    spectra = rescale_intensities(args, config, spectra)
+    spectrum_tweaks.set_shift_eV(shift_eV)
+
+    use_uniform_intensities = find_if_uniform_intensities(args, config)
+    spectrum_tweaks.set_uniform_intensities(use_uniform_intensities)
+
+    rescale_factor = find_rescale_factor(args, config)
+    spectrum_tweaks.set_rescale_intensities(rescale_factor)
+
+    for spectrum in spectra:
+        spectrum_tweaks.apply_to(spectrum)
 
     fig, ax = get_fig_and_ax(args, config)
 
-    envelope_max_y = add_envelope(ax, args, config, spectra, xlims, gamma)
-    max_peak = add_peaks(ax, args, config, spectra, xlims)
-    top_feature = max(envelope_max_y, max_peak)
-    spectrum_texts = add_spectrum_assignments(ax, spectra, top_feature, xlims)
+    spectrum_plot_kw = {}
 
-    add_info_text(ax, args, config, shift_eV, basis, lanczos, gamma)
+    *xlims, gamma = find_left_right_gamma(spectra, args, config)
+    spectrum_plot_kw['xlims'] = xlims
+    spectrum_plot_kw['gamma'] = gamma
+
+    envelope_type = find_envelope_type(args, config)
+    spectrum_plot_kw['envelope_type'] = envelope_type
+
+    sticks_off = find_if_sticks_are_unwanted(args, config)
+    spectrum_plot_kw['sticks_off'] = sticks_off
+
+    envelope_max_y = add_envelope(ax, envelope_type, spectra, xlims, gamma)
+    max_peak = add_peaks(ax, sticks_off, spectra, xlims)
+
+    top_feature = max(envelope_max_y, max_peak)
+    the_spectrum_assignments = add_spectrum_assignments(
+        ax, spectra, top_feature, xlims
+    )
+
+    annotation = find_annotation(args, config)
+    verbose = find_if_verbose_is_wanted(args, config)
+    annotation_position = find_annotation_position(args, config)
+    add_info_text(
+        ax, shift_eV, basis, lanczos, gamma, envelope_type,
+        annotation, verbose, annotation_position,
+    )
 
     # config file can specify extra peaks
     reference_peaks = collect_reference_peaks_from_config(args, config)
@@ -1439,12 +1568,17 @@ def main():
     add_minor_ticks(args, config, ax)
     add_second_axis(args, config, ax, origin)
 
-    customize_yaxis(args, config, ax)
+    show_yaxis_ticks = find_if_show_yaxis_ticks(args, config)
+    spectrum_plot_kw['show_yaxis_ticks'] = show_yaxis_ticks
+    ylims = find_ylims(config)
+    spectrum_plot_kw['ylims'] = ylims
+    if ylims is not None:
+        ax.set_ylim(bottom=ylims['bottom'], top=ylims['top'])
 
     # TODO: figure out the rescale_factor
     if rescale_factor is not None:
         decongest_assignments(ax, texts_ref, rescale_factor > 0)
-    decongest_assignments(ax, spectrum_texts)
+    decongest_assignments(ax, the_spectrum_assignments)
 
     filename = prepare_filename(args, config)
     dont_save = False
