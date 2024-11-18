@@ -58,7 +58,7 @@ The above cvs file can be added to the spectrum using the following section in
 the config
 ```toml
 [[reference_spectrum]]
-file = "/home/data/reference_peaks.csv" # absolute paths work the best
+spectrum_files = ["/home/data/reference_peaks.csv"] # absolute paths are best
 plot_type = "stems"  # chose from "stems", "plot", and "scatter"
 energy_units = "cm-1" # defaults to "eV"
 rescale_intensities = -5.0 # defaults to 1.0, i.e., intensities remain unchanged
@@ -66,19 +66,6 @@ y_offset = 1.0 # defaults to 0.0, beginning of the reference peaks
 match_origin = 2.71  # in the same units as `energy_units`
 line_kwargs.color = 'tab:orange'  # Specify any kwargs for the plot function
 ```
-
-#### Add reference peaks directly to the spectrum
-A list of reference peaks was made to enable simple comparison with
-experimental spectra. 
-```toml
-[[reference_peaks]]
-energy = 1.0 # float
-energy_unit = "eV" # currently supporting only "eV" and "cm-1"
-amplitude = 1.0 # float
-assignment = "$1 ^0 _1$" # str
-```
-To add multiple peaks add one entry like that for each peak, see [array of
-tables in TOML](https://toml.io/en/v1.0.0#array-of-tables).
 
 ## Dependencies 
 
