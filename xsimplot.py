@@ -243,10 +243,11 @@ def parse_command_line() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Plot vibronic spectrum.")
 
     parser.add_argument(
-        "spectrum_files",
+        "--spectrum_files",
         help="List of files storing the spectrum. The -n (--spectrum_format)"
         " flag controls the spectrum format.",
-        nargs="+"
+        default=None,
+        nargs="+",
     )
 
     second_ax = parser.add_argument_group(
@@ -449,7 +450,7 @@ def parse_command_line() -> argparse.Namespace:
 
     save.add_argument("-d", "--dont_save",
                       help="Just show the figure. Don't save it yet.",
-                      default=False,
+                      default=None,
                       action="store_true")
 
     save.add_argument("-f", "--filename",
@@ -821,7 +822,7 @@ def add_scatter(
         ys = [
             peak['intensity'] + y_offset for peak in spectrum.spectral_points
         ]
-        ax.scatter(xs, ys, s=2)
+        ax.plot(xs, ys, marker='o', markersize=2, linewidth=0.5)
         max_values.append(max(ys))
 
     return max(max_values) - y_offset
@@ -1006,23 +1007,11 @@ def add_info_text(
 
 
 def prepare_filename(
-        args: argparse.Namespace,
-        config: dict,
+        spectrum_files: list[str],
 ) -> str:
-    user_filename = None
-    if 'filename' in config:
-        user_filename = config['filename']
-    if args.filename is not None:
-        user_filename = args.filename
 
-    if user_filename is not None:
-        return user_filename
-
-    # If the user does not say the name create one yourself
-    path = os.path.expanduser('~')
-
-    filename = path + "/"
-    for idx, outname in enumerate(args.spectrum_files):
+    filename = str()
+    for idx, outname in enumerate(spectrum_files):
         if idx > 0:
             filename += "+"
         filename += os.path.basename(outname)
@@ -1910,12 +1899,27 @@ def main():
 
     decongest_assignments(ax, the_spectrum_assignments)
 
-    filename = prepare_filename(args, config)
-    dont_save = False
-    if 'dont_save' in config:
-        dont_save = config['dont_save']
-    if args.dont_save is True:
-        dont_save = True
+    filename = find_value_of(
+        property='filename',
+        args=args,
+        config=config,
+        default=None,
+    )
+    if filename is None:
+        spectrum_files = find_value_of(
+            property='spectrum_files',
+            args=args,
+            config=config,
+            default=None,
+        )
+        filename = prepare_filename(spectrum_files)
+
+    dont_save = find_value_of(
+        property='dont_save',
+        config=config,
+        args=args,
+        default=None,
+    )
 
     if dont_save is True:
         plt.show()
