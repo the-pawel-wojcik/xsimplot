@@ -15,7 +15,7 @@ from adjustText import adjust_text
 
 
 DISREGARD_INTENSITY = 1e-20  # From xsim's spectrum
-ANNOTATION_DISREGARD_THRESH = 0.01  # as a part of the spectrum tallest peak
+ANNOTATION_DISREGARD_THRESH = 0.001  # as a part of the spectrum tallest peak
 
 FONTSIZE = 12
 CM2INCH = 1/2.54
@@ -189,6 +189,74 @@ class SpectrumTweaks:
                 peak['energy'] -= self.shift_eV
 
 
+class KeyFloatX(argparse.Action):
+    """ This class allows to specify key=value pairs for the xlims. """
+
+    def __call__(
+            self,
+            parser,
+            namespace,
+            values,
+            option_string=None,
+    ):
+        setattr(namespace, self.dest, dict())
+
+        for value in values:
+            key, number_str = value.split('=')
+            try:
+                number = float(number_str)
+            except Exception:
+                raise argparse.ArgumentError(
+                    f"{number_str} is not a real number."
+                )
+
+            if key not in ['left', 'right']:
+                raise argparse.ArgumentError(
+                    "The only allowed values of xlims are 'left' or 'right'."
+                )
+
+            getattr(namespace, self.dest)[key] = number
+
+        if len(getattr(namespace, self.dest)) != 2:
+            raise argparse.ArgumentError(
+                "When specifying xlims both 'left' and 'right' are needed."
+            )
+
+
+class KeyFloatY(argparse.Action):
+    """ This class allows to specify key=value pairs for ylims. """
+
+    def __call__(
+            self,
+            parser,
+            namespace,
+            values,
+            option_string=None,
+    ):
+        setattr(namespace, self.dest, dict())
+
+        for value in values:
+            key, number_str = value.split('=')
+            try:
+                number = float(number_str)
+            except Exception:
+                raise argparse.ArgumentError(
+                    f"{number_str} is not a real number."
+                )
+
+            if key not in ['top', 'bottom']:
+                raise argparse.ArgumentError(
+                    "The only allowed values of ylims are 'top' or 'bottom'."
+                )
+
+            getattr(namespace, self.dest)[key] = number
+
+        if len(getattr(namespace, self.dest)) != 2:
+            raise argparse.ArgumentError(
+                "When specifying ylims both 'top' and 'bottom' are needed."
+            )
+
+
 def ezFCF_label_helper(
         state: str,
 ) -> str:
@@ -343,6 +411,22 @@ def parse_command_line() -> argparse.Namespace:
         choices=ALLOWED_ANNOTATION_POSITIONS,
         default=None,
         type=str
+    )
+
+    parser.add_argument(
+        "--xlims",
+        help="Use: --xlims left=float right=float.",
+        default=None,
+        nargs='+',
+        action=KeyFloatX,
+    )
+
+    parser.add_argument(
+        "--ylims",
+        help="Use: --ylims bottom=float top=float. The % of default values.",
+        default=None,
+        nargs='+',
+        action=KeyFloatY,
     )
 
     parser.add_argument("-c", "--config",
@@ -1240,31 +1324,6 @@ def find_if_show_yaxis_ticks(
     return show_yaxis_ticks
 
 
-def find_ylims(
-        config: dict,
-):
-    """Returns a dictionary with
-    ```python
-    {'bottom': float, 'top': float}
-    ```"""
-    if 'ylims' in config:
-        ylims: dict = config['ylims']
-        if not isinstance(ylims, dict):
-            print("Warning: The conifg 'ylims' is invalid", file=sys.stderr)
-            return None
-        if 'bottom' not in ylims or 'top' not in ylims:
-            print("Warning: The conifg 'ylims' is invalid", file=sys.stderr)
-            return None
-
-        for val in ylims.values():
-            if not isinstance(val, float):
-                print("Warning: The conifg specifies invalid 'ylims'.",
-                      file=sys.stderr)
-                return None
-        return ylims
-    return None
-
-
 def find_spectrum_format(
         config: dict,
         args: argparse.Namespace | None = None,
@@ -1433,11 +1492,10 @@ def collect_ax_tweaks(
     ylims = find_value_of(
         property='ylims',
         config=config,
-        args=None,
+        args=args,
         property_type=dict,
         default=None,
     )
-    # find_ylims(config)
     spectrum_plot_kw['ylims'] = ylims
 
     return spectrum_plot_kw
@@ -1461,7 +1519,26 @@ def apply_ax_tweaks(
     ax.set_xlim([xlims[0], xlims[1]])
 
     if ylims is not None:
-        ax.set_ylim(bottom=ylims['bottom'], top=ylims['top'])
+        bottom, top = ax.get_ylim()
+        margin = mpl.rcParams['axes.ymargin']
+        view_span = top - bottom
+        peak_span = view_span / (1 + 2 * margin)
+
+        peak_bottom = bottom + margin * peak_span
+
+        goal_bottom = ylims['bottom']
+        goal_top = ylims['top']
+        new_peak_span = (goal_top - goal_bottom) * peak_span
+
+        new_bottom = peak_bottom
+        new_bottom += goal_bottom * peak_span
+        new_bottom -= margin * new_peak_span
+
+        new_top = peak_bottom
+        new_top += goal_top * peak_span
+        new_top += margin * new_peak_span
+
+        ax.set_ylim(bottom=new_bottom, top=new_top)
 
     if show_yaxis_ticks is False:
         ax.set_yticks([])
@@ -1570,7 +1647,7 @@ def main():
     )
     xlims = find_value_of(
         property='xlims',
-        args=None,
+        args=args,
         config=config,
         property_type=dict,
         default=None

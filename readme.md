@@ -1,7 +1,10 @@
 # xsimplot
-
-A python script for plotting the spectra calculated with the
-[xsim](https://cfour.uni-mainz.de/cfour/index.php) program.
+A python script for plotting the vibronic spectra. It offers the best support
+for outputs of the
+[xsim](https://cfour.uni-mainz.de/cfour/index.php),
+[ezFCF](https://github.com/the-pawel-wojcik/ezFCF), and
+[xfc2](https://cfour.uni-mainz.de/cfour/index.php?n=Main.Franck-CondonInterface)
+programs, as well as for a general spectrum in a "ref" file format (see below).
 
 ## Usage
 
@@ -16,28 +19,13 @@ but then you need to give the name to the script using the `-c` option.
 If an option is specified both in the config file and on the command line, the
 command line value is used.
 
-### Options available only from the config file
-
-Two tables that set the x and y limits.
-```toml
-[xlims]
-left=1.0
-right=3.0
-
-[ylims]
-bottom=1.0
-top=3.0
-```
-if you put the table in the config you must set both values in the table.
-
-
 #### Add reference peaks from a file
 Reference peaks (e.g. for an experiment vs theory showcase) can be added from
 an external csv file. The file must have two columns: the first column lists
-energies while the second column lists intensities of the features.  The file
-must have a header `energy,intensity` as its first line. Third optional column
-can contain assignment strings. Not all peaks need to have an assignmnet
-string.
+energies while the second column lists intensities of the features. The file
+must have a header `energy,intensity` as its first line. Third, optional,
+column can contain assignment strings. Not all peaks need to have the
+assignment string.
 
 An example of a file with reference peaks:
 ```csv
@@ -59,7 +47,6 @@ the config
 ```toml
 [[reference_spectrum]]
 spectrum_files = ["/home/data/reference_peaks.csv"] # absolute paths are best
-plot_type = "stems"  # chose from "stems", "plot", and "scatter"
 energy_units = "cm-1" # defaults to "eV"
 rescale_intensities = -5.0 # defaults to 1.0, i.e., intensities remain unchanged
 y_offset = 1.0 # defaults to 0.0, beginning of the reference peaks
@@ -89,9 +76,10 @@ line_kwargs.color = 'tab:orange'  # Specify any kwargs for the plot function
 
 ### Optional
 
-cofur parsers: xsim
+If using `--spectrum_format 'xsim'` the additional dependency is needed [cofur
+parser](https://github.com/the-pawel-wojcik/cfour_parser). xsim outputs can be
+plotted without it if you chose the `--spectrum_format 'fort.20'` instead.
 
-Parsing xsim output gives more information: allows to print basis set
-information with the `--verbose` flag. If not wanted use the `--no_parser` flag
-and use the `fort.20` files instead of xsim's output.
+Parsing xsim allows to show basis set and number of Lanczos iterations using
+the `--verbose` flag. 
 
