@@ -417,15 +417,16 @@ def parse_command_line() -> argparse.Namespace:
         "--xlims",
         help="Use: --xlims left=float right=float.",
         default=None,
-        nargs='+',
+        nargs=2,
         action=KeyFloatX,
     )
 
     parser.add_argument(
         "--ylims",
-        help="Use: --ylims bottom=float top=float. The % of default values.",
+        help="Use: --ylims bottom=float top=float."
+        " The percentage of default values.",
         default=None,
-        nargs='+',
+        nargs=2,
         action=KeyFloatY,
     )
 
@@ -895,6 +896,7 @@ def add_scatter(
         spectra: list[Spectrum],
         scatter: bool,
         y_offset: float,
+        xlims: tuple[float, float] | None = None,
 ) -> float:
     """ Returns max value of the scatter. """
     if scatter is False:
@@ -902,10 +904,21 @@ def add_scatter(
 
     max_values = list()
     for spectrum in spectra:
-        xs = [peak['energy'] for peak in spectrum.spectral_points]
-        ys = [
-            peak['intensity'] + y_offset for peak in spectrum.spectral_points
-        ]
+        peaks_in_range = list()
+        if xlims is not None:
+            peaks_in_range = [
+                peak
+                for peak in spectrum.spectral_points
+                if peak['energy'] > xlims[0] and peak['energy'] < xlims[1]
+            ]
+        else:
+            peaks_in_range = [
+                peak
+                for peak in spectrum.spectral_points
+            ]
+
+        xs = [peak['energy'] for peak in peaks_in_range]
+        ys = [peak['intensity'] + y_offset for peak in peaks_in_range]
         ax.plot(xs, ys, marker='o', markersize=2, linewidth=0.5)
         max_values.append(max(ys))
 
@@ -1587,7 +1600,8 @@ def plot_spectra(
         ax=ax,
         spectra=spectra,
         y_offset=y_offset,
-        scatter=scatter
+        scatter=scatter,
+        xlims=xlims,
     )
     top_feature = max([envelope_max_y, max_peak, scatter_max])
     return top_feature
@@ -1802,7 +1816,6 @@ def main():
             texts_ref += ref_spectrum_assignments
 
     if ax2nd is not None:
-        print("Ready to print second panel spectrum")
         spectrum_files = find_value_of(
             'second_panel_spectrum_files',
             config,
