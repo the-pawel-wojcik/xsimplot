@@ -8,7 +8,7 @@ import math as m
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import MultipleLocator, AutoLocator, AutoMinorLocator
 import numpy as np
 import tomllib
 from adjustText import adjust_text
@@ -1184,6 +1184,8 @@ def add_cm_scale(
 
     if interval is not None:
         ax_cm.xaxis.set_minor_locator(MultipleLocator(interval))
+    else:
+        ax_cm.xaxis.set_minor_locator(AutoMinorLocator())
 
     return ax_cm
 
@@ -1208,6 +1210,8 @@ def add_nm_scale(
 
     if interval is not None:
         ax_nm.xaxis.set_minor_locator(MultipleLocator(interval))
+    else:
+        ax_nm.xaxis.set_minor_locator(AutoMinorLocator())
 
     return ax_nm
 
@@ -1558,6 +1562,8 @@ def apply_ax_tweaks(
 
     if minor_ticks_interval is not None:
         ax.xaxis.set_minor_locator(MultipleLocator(minor_ticks_interval))
+    else:
+        ax.xaxis.set_minor_locator(AutoMinorLocator())
 
 
 def collect_spectrum_tweaks(
