@@ -1056,7 +1056,10 @@ def add_info_text(
     text = "\n".join(list_of_texts)
 
     if annotation != "":
-        text_with_newline = "\n".join(annotation[1:].split(r'\n'))
+        annotation_lines = [
+            line for line in annotation[1:].split(r'\n') if len(line) != 0
+        ]
+        text_with_newline = "\n".join(annotation_lines)
         # append
         if annotation[0] == "a":
             if len(text) == 0:
