@@ -387,7 +387,23 @@ def parse_command_line() -> argparse.Namespace:
         default=None
     )
 
-    parser.add_argument(
+    second_ax.add_argument(
+        "--second_panel_ylims_part",
+        help="See --ylims_part",
+        default=None,
+        nargs=2,
+        action=KeyFloatY,
+    )
+
+    second_ax.add_argument(
+        "--second_panel_ylims",
+        help="See --ylims",
+        default=None,
+        nargs=2,
+        action=KeyFloatY,
+    )
+
+    second_ax.add_argument(
         "--second_panel_envelope",
         help="See --envelope",
         type=str,
@@ -422,9 +438,17 @@ def parse_command_line() -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--ylims",
-        help="Use: --ylims bottom=float top=float."
+        "--ylims_part",
+        help="Use: --ylims_part bottom=float top=float."
         " The percentage of default values.",
+        default=None,
+        nargs=2,
+        action=KeyFloatY,
+    )
+
+    parser.add_argument(
+        "--ylims",
+        help="Use: --ylims bottom=float top=float.",
         default=None,
         nargs=2,
         action=KeyFloatY,
@@ -1516,7 +1540,15 @@ def collect_ax_tweaks(
         property_type=dict,
         default=None,
     )
+    ylims_part = find_value_of(
+        property='ylims_part',
+        config=config,
+        args=args,
+        property_type=dict,
+        default=None,
+    )
     spectrum_plot_kw['ylims'] = ylims
+    spectrum_plot_kw['ylims_part'] = ylims_part
 
     return spectrum_plot_kw
 
@@ -1525,6 +1557,7 @@ def apply_ax_tweaks(
         ax: mpl.axes.Axes,
         xlims: tuple[float, float],
         ylims: dict[str, float] | None,
+        ylims_part: dict[str, float] | None,
         show_yaxis_ticks: bool,
         minor_ticks_interval: float | None,
 ):
@@ -1532,6 +1565,7 @@ def apply_ax_tweaks(
     Parameters:
         ax: matplotlib.axes.Axes = the Axes that will be modified
         ylims: dict[str, float] | None = axis limits; 'bottom' and 'top'.
+        ylims_part: dict[str, float] | None = axis limits %; 'bottom' and 'top'.
         show_yaxis_ticks: bool = leave or hide the ticks on the yaxis.
         minor_ticks_interval = add extra minor ticks on axis
     """
@@ -1539,6 +1573,9 @@ def apply_ax_tweaks(
     ax.set_xlim([xlims[0], xlims[1]])
 
     if ylims is not None:
+        ax.set_ylim(bottom=ylims['bottom'], top=ylims['top'])
+
+    if ylims_part is not None:
         bottom, top = ax.get_ylim()
         margin = mpl.rcParams['axes.ymargin']
         view_span = top - bottom
@@ -1546,8 +1583,8 @@ def apply_ax_tweaks(
 
         peak_bottom = bottom + margin * peak_span
 
-        goal_bottom = ylims['bottom']
-        goal_top = ylims['top']
+        goal_bottom = ylims_part['bottom']
+        goal_top = ylims_part['top']
         new_peak_span = (goal_top - goal_bottom) * peak_span
 
         new_bottom = peak_bottom
@@ -1950,6 +1987,22 @@ def main():
     spectrum_ax_kw = collect_ax_tweaks(args, config)
     apply_ax_tweaks(ax=ax, xlims=xlims, **spectrum_ax_kw)
     if ax2nd is not None:
+        second_panel_ylims = find_value_of(
+            property='second_panel_ylims',
+            config=config,
+            args=args,
+            property_type=dict,
+            default=None,
+        )
+        second_panel_ylims_part = find_value_of(
+            property='second_panel_ylims_part',
+            config=config,
+            args=args,
+            property_type=dict,
+            default=None,
+        )
+        spectrum_ax_kw['ylims'] = second_panel_ylims
+        spectrum_ax_kw['ylims_part'] = second_panel_ylims_part
         ax.xaxis.set_ticklabels([])
         apply_ax_tweaks(ax=ax2nd, xlims=xlims, **spectrum_ax_kw)
 
