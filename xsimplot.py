@@ -318,6 +318,18 @@ def parse_command_line() -> argparse.Namespace:
         nargs="+",
     )
 
+    parser.add_argument(
+        "--spectrum_format",
+        help="Chose the format of the spectrum file. 'xsim'"
+        "requires additional parser. 'ref' marks that the"
+        " input follows the 'reference_spectrum' format"
+        " described in the reamde file. If 'ref' uses peak "
+        " location not in 'eV', see '-u'.",
+        default=None,  # defaults to fort.20 see code
+        type=str,
+        choices=SUPPORTED_FILETYPES,
+    )
+
     second_ax = parser.add_argument_group(
         'second ax',
     )
@@ -507,17 +519,6 @@ def parse_command_line() -> argparse.Namespace:
                         type=float,
                         default=None)
 
-    parser.add_argument(
-        "--spectrum_format",
-        help="Chose the format of the spectrum file. 'xsim'"
-        "requires additional parser. 'ref' marks that the"
-        " input follows the 'reference_spectrum' format"
-        " described in the reamde file. If 'ref' uses peak "
-        " location not in 'eV', see '-u'.",
-        default=None,  # defaults to fort.20 see code
-        type=str,
-        choices=SUPPORTED_FILETYPES,
-    )
 
     parser.add_argument("-r", "--scale_factor",
                         help="Scale the figure size with the factor.",
@@ -1069,7 +1070,10 @@ def add_info_text(
         list_of_texts += [r'$\gamma = ' + f'{gamma:.3f}$']
 
     if shift_eV is not None:
-        list_of_texts += [f'$s = {shift_eV:.2f}$ eV']
+        if abs(shift_eV) > 1.0:
+            list_of_texts += [f'shift$ = {shift_eV:.1f}$ eV']
+        else:
+            list_of_texts += [f'shift$ = {shift_eV*1000:.0f}$ meV']
 
     if verbose is True:
         if basis is not None:
@@ -2037,11 +2041,12 @@ def main():
             second_axis=second_axis,
             interval=interval,
         )
-        ax.xaxis.set_ticklabels([])
-        ax2nd_top_ax.xaxis.set_ticklabels([])
+        if ax2nd_top_ax is not None:
+            ax.xaxis.set_ticklabels([])
+            ax2nd_top_ax.xaxis.set_ticklabels([])
 
-        for loc_ax in [ax, top_ax, ax2nd, ax2nd_top_ax]:
-            loc_ax.tick_params(axis='both', which='both', direction='in')
+            for loc_ax in [ax, top_ax, ax2nd, ax2nd_top_ax]:
+                loc_ax.tick_params(axis='both', which='both', direction='in')
 
     # TODO: figure out the rescale_factor
     if len(texts_ref) != 0:
