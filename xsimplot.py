@@ -1070,10 +1070,16 @@ def add_info_text(
         list_of_texts += [r'$\gamma = ' + f'{gamma:.3f}$']
 
     if shift_eV is not None:
-        if abs(shift_eV) > 1.0:
-            list_of_texts += [f'shift$ = {shift_eV:.1f}$ eV']
+        if shift_eV > 0:
+            shift_text = "red-shifted"
         else:
-            list_of_texts += [f'shift$ = {shift_eV*1000:.0f}$ meV']
+            shift_text = "blue-shifted"
+        if abs(shift_eV) > 1.0:
+            list_of_texts += [f'{shift_text} ${shift_eV:.1f}$ eV']
+        elif abs(shift_eV) > 0.2:            
+            list_of_texts += [f'{shift_text} ${shift_eV:.2f}$ eV']
+        else:                                
+            list_of_texts += [f'{shift_text} ${shift_eV*1000:.0f}$ meV']
 
     if verbose is True:
         if basis is not None:
@@ -1603,6 +1609,8 @@ def apply_ax_tweaks(
 
     if show_yaxis_ticks is False:
         ax.set_yticks([])
+    else:
+        print(f"{ax.get_ylim()=}")
 
     if minor_ticks_interval is not None:
         ax.xaxis.set_minor_locator(MultipleLocator(minor_ticks_interval))
