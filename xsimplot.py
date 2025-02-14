@@ -1076,9 +1076,10 @@ def add_info_text(
             shift_text = "red-shifted"
         else:
             shift_text = "blue-shifted"
-        if abs(shift_eV) > 1.0:
+        shift_eV = abs(shift_eV)
+        if shift_eV > 1.0:
             list_of_texts += [f'{shift_text} ${shift_eV:.1f}$ eV']
-        elif abs(shift_eV) > 0.2:            
+        elif shift_eV > 0.2:            
             list_of_texts += [f'{shift_text} ${shift_eV:.2f}$ eV']
         else:                                
             list_of_texts += [f'{shift_text} ${shift_eV*1000:.0f}$ meV']
