@@ -8,7 +8,7 @@ import math as m
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-from matplotlib.ticker import MultipleLocator, AutoLocator, AutoMinorLocator
+from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 import numpy as np
 import tomllib
 from adjustText import adjust_text
@@ -259,7 +259,7 @@ class KeyFloatY(argparse.Action):
 
 def ezFCF_label_helper(
         state: str,
-) -> str:
+) -> dict:
     """
     turn st_number(n1vm1,n2vm2,...) into {m1: n1, m2: n2, ...}
     """
@@ -619,7 +619,7 @@ def lorenzian(x: float, x0: float, gamma: float) -> float:
 
 def turn_spectrum_to_xs_and_ys(
         spectrum: list[dict],
-) -> tuple[float, float]:
+) -> tuple[list[float], list[float]]:
     xs = []
     ys = []
     for spectral_point in spectrum:
@@ -663,7 +663,7 @@ def stem_spectral_peaks(
 
 def get_xsim_outputs_from_fort20(
         spectrum_files: list[str],
-) -> tuple[list[Spectrum], int]:
+) -> tuple[list[Spectrum], int | None]:
     xsim_outputs = []
     lanczos = None
     for file_idx, fort20_file in enumerate(spectrum_files):
@@ -681,13 +681,13 @@ def get_xsim_outputs_from_fort20(
 
         xsim_spectrum = Spectrum()
         for peak in fort20[1:]:
-            peak = peak.split()
+            split_peak = peak.split()
             try:
-                intensity = float(peak[1])
+                intensity = float(split_peak[1])
             except ValueError:
                 # for tiny tiny intensities xsim produces garbage, i.e.:
                 # 6.86644579832093   0.159775868164848-105  39294.6062024455
-                exponent = int(peak[1][-4:])
+                exponent = int(split_peak[1][-4:])
                 if exponent < -99:
                     continue
                 print("Error: cannot process the line:" + peak,
@@ -696,7 +696,7 @@ def get_xsim_outputs_from_fort20(
             if intensity < DISREGARD_INTENSITY:
                 continue
 
-            energy_eV = float(peak[0])
+            energy_eV = float(split_peak[0])
             xsim_spectrum.add_sepctral_point(
                 energy=energy_eV,
                 intensity=intensity,
@@ -709,10 +709,10 @@ def get_xsim_outputs_from_fort20(
 
 def get_xsim_outputs(
         spectrum_files: list[str],
-) -> tuple[list[Spectrum], str, int]:
+) -> tuple[list[Spectrum], str | None, int | None]:
 
     from cfour_parser.xsim import parse_xsim_output
-    xsim_outputs = []
+    xsim_outputs: list[Spectrum] = []
     basis = None
     lanczos = None
     for file_idx, spectrum_file in enumerate(spectrum_files):
@@ -754,6 +754,8 @@ def parse_ref_spectrum(
     filename = os.path.expanduser(filename)
     with open(filename, 'r', newline='') as spectrum_file:
         reader = csv.DictReader(spectrum_file)
+        if reader.fieldnames is None:
+            raise ValueError("The input reference files misses the header line")
         assignments_are_available = 'assignment' in reader.fieldnames
         if assignments_are_available:
             for row in reader:
@@ -807,7 +809,7 @@ def get_ref_spectrum(
     convert_to_eV = supported_units[energy_units]
 
     spectra = []
-    for file_idx, spectrum_file in enumerate(spectrum_files):
+    for spectrum_file in spectrum_files:
         ref_spectrum = parse_ref_spectrum(spectrum_file, convert_to_eV)
         spectra += [ref_spectrum]
 
@@ -818,7 +820,7 @@ def get_ezFCF_spectrum(
         spectrum_files: list[str],
 ) -> list[Spectrum]:
     spectra = []
-    for file_idx, spectrum_file in enumerate(spectrum_files):
+    for spectrum_file in spectrum_files:
         with open(spectrum_file) as f:
             lines = f.readlines()
 
@@ -869,7 +871,7 @@ def calculate_spectrum_shift(
         spectra: list[Spectrum],
         shift_eV: float | None,
         match_origin: float | None,
-) -> float:
+) -> float | None:
     """
     Find shift (in eV) which will be applied to the spectrum.
     """
@@ -952,10 +954,10 @@ def add_scatter(
 
 def add_envelope(
         ax: mpl.axes.Axes,
-        envelope_type: str,
+        envelope_type: str | None,
         spectra: list[Spectrum],
         xlims: list[float],
-        gamma: float | None,
+        gamma: float,
         y_offset: float,
 ) -> float:
     """ Returns height (from y_offset to the top) of the tallest feature. """
@@ -966,7 +968,7 @@ def add_envelope(
     xs = np.linspace(xlims[0], xlims[1], npoints)
     accumutated_ys = np.zeros_like(xs) + y_offset
 
-    for spectrum_idx, spectrum in enumerate(spectra):
+    for spectrum in spectra:
         state_spectrum = [lorenz_intensity(x, gamma, spectrum) for x in xs]
         state_spectrum = np.array(state_spectrum)
         if envelope_type == "stack":
@@ -1447,7 +1449,7 @@ def collect_spectra(
         spectrum_files: list[str],
         spectrum_format: str,
         energy_units: str,
-) -> tuple[list[Spectrum], str, int]:
+) -> tuple[list[Spectrum], str | None, int | None]:
     """Collect the spectrum specified on the command line."""
 
     if spectrum_format == "fort.20":
@@ -1464,8 +1466,7 @@ def collect_spectra(
         lanczos = None
         spectra = get_ref_spectrum(spectrum_files, energy_units)
     else:
-        print(f"Error: Unknown spectrum format {spectrum_format}",
-              file=sys.stderr)
+        raise ValueError(f"Unknown spectrum format {spectrum_format}")
 
     return spectra, basis, lanczos
 
@@ -1645,7 +1646,7 @@ def plot_spectra(
         spectra: list[Spectrum],
         xlims: tuple[float, float],
         envelope_type: str | None,
-        gamma: float | None,
+        gamma: float,
         sticks_off: bool,
         y_offset: float = 0.0,
         line_kwargs: dict = {},
@@ -1831,8 +1832,9 @@ def main():
                 input_shift_eV,
                 match_origin
             )
-            ref_spectrum_tweaks.set_shift_eV(shift_eV)
-            annotation_kw['shift_eV'] = shift_eV
+            if shift_eV is not None:
+                ref_spectrum_tweaks.set_shift_eV(shift_eV)
+                annotation_kw['shift_eV'] = shift_eV
 
             for spectrum in ref_spectra:
                 ref_spectrum_tweaks.apply_to(spectrum)
@@ -1923,7 +1925,8 @@ def main():
             shift_eV=second_panel_input_shift_eV,
             match_origin=second_panel_match_origin,
         )
-        spectrum_tweaks.set_shift_eV(second_panel_shift_eV)
+        if second_panel_shift_eV is not None:
+            spectrum_tweaks.set_shift_eV(second_panel_shift_eV)
 
         scd_pnl_rescale_intensities = find_value_of(
             property='second_panel_rescale_intensities',
