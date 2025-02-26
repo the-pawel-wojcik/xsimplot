@@ -11,7 +11,7 @@ import matplotlib.colors as mcolors
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 import numpy as np
 import tomllib
-from adjustText import adjust_text
+from adjustText import adjust_text, matplotlib
 
 
 DISREGARD_INTENSITY = 1e-20  # From xsim's spectrum
@@ -1021,6 +1021,9 @@ def add_peaks(
 
         peaks_maxima.append(max_peak['intensity'])
 
+    if len(peaks_maxima) == 0:
+        raise RuntimeError("No peaks in the selected range. "
+                           "Check spectrum_files, energy_units and xlims.")
     return max(peaks_maxima)
 
 
@@ -1667,6 +1670,25 @@ def plot_spectra(
     return top_feature
 
 
+def add_axes_labels(
+    ax: matplotlib.axes.Axes,
+    top_ax: matplotlib.axes.Axes,
+    ax2nd: matplotlib.axes.Axes | None,
+    ax2nd_top_ax: matplotlib.axes.Axes | None,
+    origin_eV: float,
+) -> None:
+    ax.xaxis.set_label_text('Energy, eV')
+
+    origin_cm = origin_eV * eV2CM
+    lbl_2nd = f'Energy - {origin_cm:.0f},'r' cm$^{-1}$'
+    if ax2nd is None:
+        if top_ax is not None:
+            top_ax.xaxis.set_label_text(lbl_2nd)
+    else:
+        if ax2nd_top_ax is not None:
+            ax2nd_top_ax.xaxis.set_label_text(lbl_2nd)
+
+
 def main():
     args = parse_command_line()
     config = get_config(args)
@@ -2046,6 +2068,7 @@ def main():
         second_axis=second_axis,
         interval=interval
     )
+    ax2nd_top_ax = None
     if ax2nd is not None:
         ax2nd_top_ax = add_second_axis(
             ax=ax2nd,
@@ -2066,6 +2089,7 @@ def main():
     if ax2nd is not None:
         decongest_assignments(ax2nd, assignments_2nd_spectrum)
 
+    add_axes_labels(ax, top_ax, ax2nd, ax2nd_top_ax, origin_eV)
     decongest_assignments(ax, the_spectrum_assignments)
 
     filename = find_value_of(
