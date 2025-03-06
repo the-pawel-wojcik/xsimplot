@@ -334,6 +334,13 @@ def parse_command_line() -> argparse.Namespace:
         choices=SUPPORTED_FILETYPES,
     )
 
+    parser.add_argument(
+        '--molecule_name',
+        help='Name of the molecule displayed at the top right of the figure.',
+        type=str,
+    )
+
+
     second_ax = parser.add_argument_group(
         'second ax',
     )
@@ -1678,10 +1685,10 @@ def plot_spectra(
 
 def add_axes_labels(
     ax: Axes,
-    top_ax: Axes,
+    top_ax: Axes | None,
     ax2nd: Axes | None,
-    ax2nd_top_ax: Axes | None,
     origin_eV: float,
+    molecule_name: str,
 ) -> None:
 
     # cm offset always goes on top
@@ -1697,6 +1704,12 @@ def add_axes_labels(
     else:
         # Bottom Axes is here
         ax2nd.xaxis.set_label_text('Energy, eV')
+
+    ax.text(
+        x=0.01, y=1.25, s=molecule_name,
+        ha='left', va='bottom',
+        transform=ax.transAxes,
+    )
 
 
 def main():
@@ -2101,7 +2114,14 @@ def main():
     if ax2nd is not None:
         decongest_assignments(ax2nd, assignments_2nd_spectrum) # type: ignore
 
-    add_axes_labels(ax, top_ax, ax2nd, ax2nd_top_ax, origin_eV)
+    molecule_name = find_value_of(
+        property='molecule_name',
+        args=args,
+        config=config,
+        default="",
+    )
+
+    add_axes_labels(ax, top_ax, ax2nd, origin_eV, molecule_name)
     decongest_assignments(ax, the_spectrum_assignments)
 
     filename = find_value_of(
