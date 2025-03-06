@@ -5,9 +5,12 @@ import csv
 import os
 import sys
 import math as m
-import matplotlib as mpl
+from typing import TypeVar
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.text import Text
 from matplotlib.ticker import MultipleLocator, AutoMinorLocator
 import numpy as np
 import tomllib
@@ -15,7 +18,8 @@ from adjustText import adjust_text, matplotlib
 
 
 DISREGARD_INTENSITY = 1e-20  # From xsim's spectrum
-ANNOTATION_DISREGARD_THRESH = 0.001  # as a part of the spectrum tallest peak
+# ANNOTATION_DISREGARD_THRESH = 0.001  # as a part of the spectrum tallest peak
+ANNOTATION_DISREGARD_THRESH = 0.15  # as a part of the spectrum tallest peak
 
 FONTSIZE = 12
 CM2INCH = 1/2.54
@@ -644,7 +648,7 @@ def lorenz_intensity(
 
 def stem_spectral_peaks(
         peaks: list[dict],
-        ax: mpl.axes.Axes,
+        ax: Axes,
         y_offset: float = 0.0,
         **line_kwargs
 ):
@@ -919,7 +923,7 @@ def calculate_xlims(
 
 
 def add_scatter(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         spectra: list[Spectrum],
         scatter: bool,
         y_offset: float,
@@ -953,7 +957,7 @@ def add_scatter(
 
 
 def add_envelope(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         envelope_type: str | None,
         spectra: list[Spectrum],
         xlims: list[float],
@@ -987,7 +991,7 @@ def add_envelope(
 
 
 def add_peaks(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         sticks_off: bool,
         spectra: list[Spectrum],
         xlims: list[float],
@@ -1052,7 +1056,7 @@ def find_annotation_position(
 
 
 def add_info_text(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         position: str = "top left",
         shift_eV: float | None = None,
         basis: str | None = None,
@@ -1182,37 +1186,37 @@ def find_minor_ticks_interval(
 
 
 def add_second_axis(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         origin_eV: float,
         second_axis: str | None,
         interval: float | None,
-) -> mpl.axes.Axes | None:
+) -> Axes | None:
 
     if second_axis is None:
         return None
 
     if second_axis == "cm offset":
-        second_ax: mpl.axes.Axes = add_cm_scale(
+        second_ax: Axes = add_cm_scale(
             ax,
             interval=interval,
             origin_eV=origin_eV
         )
 
     elif second_axis == "cm":
-        second_ax: mpl.axes.Axes = add_cm_scale(ax, interval=interval)
+        second_ax: Axes = add_cm_scale(ax, interval=interval)
 
     elif second_axis == "nm":
-        second_ax: mpl.axes.Axes = add_nm_scale(ax)
+        second_ax: Axes = add_nm_scale(ax)
 
     return second_ax
 
 
 def add_cm_scale(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         interval: float | None = None,
         origin_eV: float | None = None,
-) -> mpl.axes.Axes:
-    ax_cm: mpl.axes.Axes = ax.twiny()
+) -> Axes:
+    ax_cm: Axes = ax.twiny()
 
     if origin_eV is None:
         origin_cm = 0
@@ -1234,9 +1238,9 @@ def add_cm_scale(
 
 
 def add_nm_scale(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         interval: float | None,
-) -> mpl.axes.Axes:
+) -> Axes:
     r""" Relation between photon's energy and wavelength:
         E = hc / \lambda
     """
@@ -1262,7 +1266,7 @@ def add_nm_scale(
 def get_fig_and_ax(
         args: argparse.Namespace,
         config: dict,
-) -> tuple[mpl.figure.Figure, mpl.axis.Axis, mpl.axis.Axis | None]:
+) -> tuple[Figure, Axes, Axes | None]:
 
     # Scale factor is used to resize the figure in both direction
     # Making the figures smaller is the same as making the text larger
@@ -1303,12 +1307,12 @@ def get_fig_and_ax(
 
 
 def add_spectrum_assignments(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         spectra: list[Spectrum],
         top_feature: float,
         xlims: list[float],
         y_offset: float = 0.0,
-) -> list[mpl.text.Text]:
+) -> list[Text]:
 
     text_kwargs = {
         'ha': 'center',
@@ -1407,14 +1411,16 @@ def find_spectrum_format(
     return spectrum_format
 
 
+R = TypeVar('R')
+
 def find_value_of(
         property: str,
         config: dict = {},
         args: argparse.Namespace | None = None,
-        property_type=None,
-        allowed_values: list = None,
-        default=None,
-):
+        property_type: type | None = None,
+        allowed_values: list[R] | None = None,
+        default: R = None,
+) -> R | None:
     value = None
 
     # Look for it in config
@@ -1497,8 +1503,8 @@ def find_if_uniform_intensities(
 
 
 def decongest_assignments(
-        ax: mpl.axes.Axes,
-        texts: list[mpl.text.Text],
+        ax: Axes,
+        texts: list[Text],
         go_up: bool = True,
 ):
     if len(texts) == 0:
@@ -1569,7 +1575,7 @@ def collect_ax_tweaks(
 
 
 def apply_ax_tweaks(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         xlims: tuple[float, float],
         ylims: dict[str, float] | None,
         ylims_part: dict[str, float] | None,
@@ -1578,7 +1584,7 @@ def apply_ax_tweaks(
 ):
     """
     Parameters:
-        ax: matplotlib.axes.Axes = the Axes that will be modified
+        ax: Axes = the Axes that will be modified
         ylims: dict[str, float] | None = axis limits; 'bottom' and 'top'.
         ylims_part: dict[str, float] | None = axis limits %; 'bottom' and 'top'.
         show_yaxis_ticks: bool = leave or hide the ticks on the yaxis.
@@ -1592,7 +1598,7 @@ def apply_ax_tweaks(
 
     if ylims_part is not None:
         bottom, top = ax.get_ylim()
-        margin = mpl.rcParams['axes.ymargin']
+        margin = matplotlib.rcParams['axes.ymargin']
         view_span = top - bottom
         peak_span = view_span / (1 + 2 * margin)
 
@@ -1646,7 +1652,7 @@ def collect_spectrum_tweaks(
 
 
 def plot_spectra(
-        ax: mpl.axes.Axes,
+        ax: Axes,
         spectra: list[Spectrum],
         xlims: tuple[float, float],
         envelope_type: str | None,
@@ -1671,22 +1677,26 @@ def plot_spectra(
 
 
 def add_axes_labels(
-    ax: matplotlib.axes.Axes,
-    top_ax: matplotlib.axes.Axes,
-    ax2nd: matplotlib.axes.Axes | None,
-    ax2nd_top_ax: matplotlib.axes.Axes | None,
+    ax: Axes,
+    top_ax: Axes,
+    ax2nd: Axes | None,
+    ax2nd_top_ax: Axes | None,
     origin_eV: float,
 ) -> None:
-    ax.xaxis.set_label_text('Energy, eV')
 
+    # cm offset always goes on top
     origin_cm = origin_eV * eV2CM
-    lbl_2nd = f'Energy - {origin_cm:.0f},'r' cm$^{-1}$'
+    lbl_cm = f'Energy - {origin_cm:.0f},'r' cm$^{-1}$'
+    # Unless there is no top
+    if top_ax is not None:
+        top_ax.xaxis.set_label_text(lbl_cm)
+
+    # Only one Axes
     if ax2nd is None:
-        if top_ax is not None:
-            top_ax.xaxis.set_label_text(lbl_2nd)
+        ax.xaxis.set_label_text('Energy, eV')
     else:
-        if ax2nd_top_ax is not None:
-            ax2nd_top_ax.xaxis.set_label_text(lbl_2nd)
+        # Bottom Axes is here
+        ax2nd.xaxis.set_label_text('Energy, eV')
 
 
 def main():
@@ -1703,7 +1713,7 @@ def main():
     energy_units = find_energy_units(config, args)
 
     spectra, basis, lanczos = collect_spectra(
-        spectrum_files=spectrum_files,
+        spectrum_files=spectrum_files, # type: ignore
         spectrum_format=spectrum_format,
         energy_units=energy_units,
     )
@@ -1721,11 +1731,12 @@ def main():
         config=config,
         args=args,
         default=None,
-        property_type=float | None,
+        property_type=float,
     )
     shift_eV = calculate_spectrum_shift(spectra, input_shift_eV, match_origin)
-    spectrum_tweaks.set_shift_eV(shift_eV)
-    annotation_kw['shift_eV'] = shift_eV
+    if shift_eV is not None:
+        spectrum_tweaks.set_shift_eV(shift_eV)
+        annotation_kw['shift_eV'] = shift_eV
 
     for spectrum in spectra:
         spectrum_tweaks.apply_to(spectrum)
@@ -1750,7 +1761,7 @@ def main():
     )
     # xlims are used as a tuple of two in what comes next
     if xlims is None:
-        xlims = calculate_xlims(spectra, gamma)
+        xlims = calculate_xlims(spectra, gamma) # type: ignore
     else:
         xlims = xlims['left'], xlims['right']
 
@@ -1764,7 +1775,7 @@ def main():
         config=config,
         property_type=str,
         allowed_values=SUPPORTED_ENVELOPES,
-        default=None,
+        default=None, # type: ignore
     )
 
     spectrum_plot_kw['envelope_type'] = envelope_type
@@ -1834,7 +1845,7 @@ def main():
                 property_type=list,
                 default=[],
             )
-            if len(spectrum_files) == 0:
+            if len(spectrum_files) == 0: # type: ignore
                 print(
                     "Error: No spectrum_files in the 'reference_spectrum'",
                     file=sys.stderr,
@@ -1880,7 +1891,7 @@ def main():
                 config=ref_spec_conf,
                 property_type=str,
                 allowed_values=SUPPORTED_ENVELOPES,
-                default=None,
+                default=None, # type: ignore
             )
 
             ref_spec_plot_kw['line_kwargs'] = find_value_of(
@@ -1893,8 +1904,8 @@ def main():
             top_feature = plot_spectra(ax, ref_spectra, **ref_spec_plot_kw)
 
             ref_spectrum_assignments = add_spectrum_assignments(
-                ax, ref_spectra, top_feature, xlims,
-                ref_spec_plot_kw['y_offset'],
+                ax, ref_spectra, top_feature, xlims, # type: ignore
+                ref_spec_plot_kw['y_offset'], # type: ignore
             )
             texts_ref += ref_spectrum_assignments
 
@@ -1919,7 +1930,7 @@ def main():
             args,
             property_type=str,
             default='eV',
-            allowed_values=supported_units,
+            allowed_values=supported_units, # type: ignore
         )
         second_panel_spectra, basis, lanczos = collect_spectra(
             spectrum_files=spectrum_files,
@@ -1940,7 +1951,7 @@ def main():
             config=config,
             args=args,
             default=match_origin,
-            property_type=float | None,
+            property_type=float | None, # type: ignore
         )
 
         second_panel_shift_eV = calculate_spectrum_shift(
@@ -1991,7 +2002,7 @@ def main():
             config=config,
             property_type=str,
             allowed_values=SUPPORTED_ENVELOPES,
-            default=spectrum_plot_kw['envelope_type'],
+            default=spectrum_plot_kw['envelope_type'], # type: ignore
         )
 
         second_panel_top_feature = plot_spectra(
@@ -2053,13 +2064,13 @@ def main():
         args=args,
         property_type=str,
         allowed_values=ALLOWED_SECOND_AXIS_STYLES,
-    )
+    ) # type: ignore
 
     interval = find_value_of(
         'horizontal_minor_ticks_2nd_axis',
         config,
         args,
-        property_type=float | int,
+        property_type=float | int, # type: ignore
         default=None,
     )
     top_ax = add_second_axis(
@@ -2068,6 +2079,7 @@ def main():
         second_axis=second_axis,
         interval=interval
     )
+
     ax2nd_top_ax = None
     if ax2nd is not None:
         ax2nd_top_ax = add_second_axis(
@@ -2087,7 +2099,7 @@ def main():
     if len(texts_ref) != 0:
         decongest_assignments(ax, texts_ref)
     if ax2nd is not None:
-        decongest_assignments(ax2nd, assignments_2nd_spectrum)
+        decongest_assignments(ax2nd, assignments_2nd_spectrum) # type: ignore
 
     add_axes_labels(ax, top_ax, ax2nd, ax2nd_top_ax, origin_eV)
     decongest_assignments(ax, the_spectrum_assignments)
